@@ -1,0 +1,96 @@
+from datetime import datetime
+from sqlalchemy.ext.mutable import MutableList, MutableDict
+
+from sqlalchemy import Boolean, DateTime, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql import func
+
+from enum import Enum
+
+
+class StixType(Enum):
+    # --- SDOs ---
+    AttackPattern = "attack-pattern"
+    Campaign = "campaign"
+    CourseOfAction = "course-of-action"
+    Grouping = "grouping"
+    Identity = "identity"
+    Indicator = "indicator"
+    Infrastructure = "infrastructure"
+    IntrusionSet = "intrusion-set"
+    Location = "location"
+    Malware = "malware"
+    MalwareAnalysis = "malware-analysis"
+    Note = "note"
+    ObservedData = "observed-data"
+    Opinion = "opinion"
+    Report = "report"
+    ThreatActor = "threat-actor"
+    Tool = "tool"
+    Vulnerability = "vulnerability"
+ 
+    # --- SCOs ---
+    DomainName = "domain-name"
+    IPV4Addr = "ipv4-addr"
+    URL = "url"
+ 
+    # --- SMOs ---
+    MarkingDefinition = "marking-definition"
+ 
+    # --- SROs ---
+    Relationship = "relationship"
+    Sighting = "sighting"
+ 
+    # --- Platform-internal meta types ---
+    Object = "object"
+    Observable = "observable"
+    Entity = "entity"
+ 
+ 
+SDO_TYPES = [
+    StixType.AttackPattern,
+    StixType.Campaign,
+    StixType.CourseOfAction,
+    StixType.Grouping,
+    StixType.Identity,
+    StixType.Indicator,
+    StixType.Infrastructure,
+    StixType.IntrusionSet,
+    StixType.Location,
+    StixType.Malware,
+    StixType.MalwareAnalysis,
+    StixType.Note,
+    StixType.ObservedData,
+    StixType.Opinion,
+    StixType.Report,
+    StixType.ThreatActor,
+    StixType.Tool,
+    StixType.Vulnerability,
+]
+
+SCO_TYPES = [StixType.DomainName, StixType.IPV4Addr, StixType.URL]
+
+class Base(DeclarativeBase):
+    """Base is a class to define base for our models"""
+
+class BucketModel(Base):
+    __tablename__ = "bucket_model"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+
+class StixEntityModel(Base):
+    __tablename__ = "stix_entity_model"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    bucket_id: Mapped[int]
+    stix_id: Mapped[str]
+    type: Mapped[str] = mapped_column(String(30))
+    spec_version: Mapped[str] = mapped_column(String(30))
+    creator: Mapped[str] = mapped_column(nullable=False)
+    value: Mapped[str] = mapped_column(nullable=False)
+    platform_modified: Mapped[datetime]
+    platform_created: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    object = mapped_column(MutableDict.as_mutable(JSONB))
