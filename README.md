@@ -4,6 +4,10 @@ STIXHub is a platform for collecting and distributing Cyber Threat Intelligence 
 
 The platform also features a system for filtering and mutating CTI, to automate and improve data quality. 
 
+# Getting started
+## Docker deploy
+## Development environment
+
 ## Philosophy
 STIX and TAXII are the most widely accepted standards for CTI. They are vendor agnostic, and machine readable, enabling rapid integration with products and quick exchange of information. 
 
@@ -73,12 +77,23 @@ This section details how the storage is laid out.
 ### Buckets
 Buckets are used to organize data within the storage layer of TAXIIHub. When intelligence is ingested, the new entities can be written to one or multiple buckets. When distributing intelligence, collections can source intelligence from one or multiple buckets. 
 
-A bucket can be configured to store data in two ways. Either it merges entities with the same ID according to one of multiple merge strategies (Merge mode), or multiple entities with the same ID can coexist in the same bucket (Raw mode). 
+### Merge modes & strategies
+A bucket can be configured to store data in two ways. Either it merges entities with the same ID according to one of multiple merge strategies (Merge mode), or multiple entities with the same ID can coexist in the same bucket (Append mode). You may wish to use merge mode, when writing to a bucket which is used directly in a collection. This prevents your consumers from receiving conflicting information on the same entity. Append mode make sense for a bucket used for collection. In this case you may want to keep all version of an entity, so you can merge them and reprocess them again later.
 
-### Merge strategies
+When merging, the following modes are supported:
+- Merge with priority based on creation date
+- Merge with priority based on update date
+- Merge with priority based on TLP
+- Merge with priority based on confidence
+- Replace with priority based on creation date
+- Replace with priority based on update date
+- Replace with priority based on TLP
+- Replace with priority based on confidence
+
+The difference between replacing and merging is that the former completely replaces sub elements such as label lists, while merging combines them. 
 
 ### RBAC
-There is a simple role based access control system. The platform has users, who can have roles. Roles givess access to read or write collections. This means that RBAC is not implemented on an entity specific level. This is a conscious choice to simplify the RBAC model. An RBAC model which is easy to understand and to reason about decreases the chance of making mistakes in configuring it. In turn preventing accidental data leaks. 
+There is a simple role based access control system. The platform has users, who can have roles. Roles give access to read or write collections. This means that RBAC is not implemented on an entity specific level. This is a conscious choice to simplify the RBAC model. An RBAC model which is easy to understand and to reason about decreases the chance of making mistakes in configuring it. In turn preventing accidental data leaks. If you want to share an entity with a user, you'll have to write it to a collection they can access.
 
 ```Mermaid
   graph TD;
@@ -103,7 +118,7 @@ An example configuration may be as follows:
 In this example user a has access to both collection-a and collection-b. However, while can read all entities in collection-a, they can only read entities from bucket-b in collection-b, because their role does not grant them access to bucket-c.
 
 ## Collector
-A collector is responsible for collecting data from another TAXII server (or other protocols) and inserting them into a bucket. Collectors communicate with the system via a HTTP/s rest API. When a connector starts, it registers itself to to the platform, and indicate to which bucket it wants to write. The default behaviour is that the platform provisions an new bucket for each collector. However you can configure the collector to write to another bucket.
+A collector is responsible for collecting data from another TAXII server (or other protocols) and inserting them into a bucket. Collectors communicate with the system via a HTTP/s rest API. When a connector starts, it registers itself to to the platform, and indicate to which bucket it wants to write. The default behaviour is that the platform provisions a new bucket for each collector. However you can configure the collector to write to another bucket.
 
 The collector submits entities to the system by HTTP/s. The system writes them to the configured bucket. 
 
@@ -111,11 +126,14 @@ The collector submits entities to the system by HTTP/s. The system writes them t
 sequenceDiagram
     Collector->>Platform: Register (name, and bucket)?
     Platform->>Database: Lookup state of collector
+    Platform->>Database: Provisions new bucket
     Platform->>Collector: Return OK, position of cursor
     Collector->>Collector: Fetch data
     Collector->>Platform: Submit data, update cursor
     Platform->>Database: Write data
 ```
+
+
 
 ## Pipelines
 Each pipeline is executed by a worker. The worker periodically checks the database to see if new entities have arrived in a bucket. If they have, the worker processes them, and writes them to another bucket. The pipeline worker uses the database to keep track of where it is in the bucket. 
@@ -133,18 +151,15 @@ A pipeline can perform the following actions on an entity
 
 Pipelines run on new data in buckets, but can be triggered to reprocess old data.
 
-### Managing deduplication conflicts
+### Locking mechanism
 Workers constantly poll the database to check for new entities. When writing to a bucket, they are capable of performing an upsert. Effectively merging the data according to a specific strategy. When multiple workers are active, the system needs to manage them to prevent a deduplication conflict scenario. 
 
-We require that STIX Id's are generated deterministically. This is achieved by overwriting the ID with the ID generated by our own system on ingestion, and keeping the old ID in a separate field
+We require that STIX Id's are generated deterministically. This is achieved by overwriting the ID with the ID generated by our own system on ingestion, and keeping the old ID in a separate field. The system uses the update skip locked mechanism in PSQL to prevent race conditions
 
-#### Single node deployment
-When the system is deployed in single node. Each worker is a FastAPI worker(?). At startup each node is given a partition based on a hash partitioning scheme. This partition determines which entities it may pick up from the database, ensuring that entities that share the same ID (and would be deduplicated) are always processed by the same process. When increasing or decreasing the amount of workers for a pipeline, the system must be completely restarted to allow repartioning of workers. 
+#### Fetching from queue
+Workers get entities from the bucket, which is essentially functioning as a queue. Each entity has a state attached to it. New->Pending->Processed. When selecting entities from the bucket, the connector locks them immediately to prevent other workers from processing the same entities.
 
-#### Multi node deployment
-The partioning scheme works identically. However workers register themselves to an API. The worker must receive the go ahead from the API before starting work.
+#### Writing to output bucket
+Depending on the bucket mode, writing happens differently. If the bucket is in 'append' mode the new entity can just be inserted. If the bucket is in 'merge' mode, we need to take care to prevent race conditions. It may occur that two different workers have picked up two entities with the same ID but different conflicting fields. Assuming that the order in they are merged does not matter, we must ensure that one is not accidentally overwriting the other. This can happen in two instances: when a new entity is inserted, but the other worker inserts a conflicting entity before that. Alternatively the entity is already in the bucket, one worker merges their updates, and the second worker overwrites these updates with their own.
 
-```Mermaid
-    graph TD;
-    Worker-register-event-->Worker-stop-event-->Repartition-event-->Restart-run-event
-```
+The first scenario is solved by failing the insert when an entity is already in the bucket, and performing a merge instead. The second scenario is solved by locking the existing entity into merge mode, and having the worker fail with NO_WAIT when trying to get a lock. The worker will then wait for a period, and try to merge again.

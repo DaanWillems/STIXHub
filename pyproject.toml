@@ -1,0 +1,34 @@
+[build-system]
+requires= ["setuptools>=72.0"]
+
+[project]
+name = "STIXHub"
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [
+    { name = "Daan Willems", email = "daan@daan.nl"}
+]
+dependencies = [
+    "fastapi[standard]",
+    "pydantic",
+    "sqlalchemy",
+    "psycopg[binary]",
+    "asyncpg",
+    "uvicorn"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-env",
+    "pytest-cov"
+]
+
+[tool.mypy]
+warn_return_any = true
+warn_unused_configs = true
+strict = true
+check_untyped_defs = true
