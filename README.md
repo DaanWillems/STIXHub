@@ -73,6 +73,10 @@ This section details how the storage is laid out.
 ### Buckets
 Buckets are used to organize data within the storage layer of TAXIIHub. When intelligence is ingested, the new entities can be written to one or multiple buckets. When distributing intelligence, collections can source intelligence from one or multiple buckets. 
 
+A bucket can be configured to store data in two ways. Either it merges entities with the same ID according to one of multiple merge strategies (Merge mode), or multiple entities with the same ID can coexist in the same bucket (Raw mode). 
+
+### Merge strategies
+
 ### RBAC
 There is a simple role based access control system. The platform has users, who can have roles. Roles givess access to read or write collections. This means that RBAC is not implemented on an entity specific level. This is a conscious choice to simplify the RBAC model. An RBAC model which is easy to understand and to reason about decreases the chance of making mistakes in configuring it. In turn preventing accidental data leaks. 
 
@@ -99,7 +103,19 @@ An example configuration may be as follows:
 In this example user a has access to both collection-a and collection-b. However, while can read all entities in collection-a, they can only read entities from bucket-b in collection-b, because their role does not grant them access to bucket-c.
 
 ## Collector
-This section explains how the collector system works. 
+A collector is responsible for collecting data from another TAXII server (or other protocols) and inserting them into a bucket. Collectors communicate with the system via a HTTP/s rest API. When a connector starts, it registers itself to to the platform, and indicate to which bucket it wants to write. The default behaviour is that the platform provisions an new bucket for each collector. However you can configure the collector to write to another bucket.
+
+The collector submits entities to the system by HTTP/s. The system writes them to the configured bucket. 
+
+```mermaid
+sequenceDiagram
+    Collector->>Platform: Register (name, and bucket)?
+    Platform->>Database: Lookup state of collector
+    Platform->>Collector: Return OK, position of cursor
+    Collector->>Collector: Fetch data
+    Collector->>Platform: Submit data, update cursor
+    Platform->>Database: Write data
+```
 
 ## Pipelines
 Each pipeline is executed by a worker. The worker periodically checks the database to see if new entities have arrived in a bucket. If they have, the worker processes them, and writes them to another bucket. The pipeline worker uses the database to keep track of where it is in the bucket. 
