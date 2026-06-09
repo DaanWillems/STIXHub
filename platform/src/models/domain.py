@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, RootModel
 
 
 @dataclass
 class Bucket:
-    id: int
     name: str
-
+    id: Optional[int] = None
 
 @dataclass
 class StixEntity:
