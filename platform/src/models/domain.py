@@ -2,13 +2,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, RootModel
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
 @dataclass
 class Bucket:
     name: str
     id: Optional[int] = None
+
 
 @dataclass
 class StixEntity:
@@ -28,11 +29,6 @@ class TaxiiCollectionMediaTypes(str, Enum):
     STIX_JSON_2_1 = "application/stix+json;version=2.1"
 
 
-class TaxiiCollectionsRootResponseModel(BaseModel):
-    model_config = ConfigDict(title="TaxiiCollectionsRootResponse")
-    collections: list[TaxiiCollectionModel]
-
-
 class TaxiiCollectionModel(BaseModel):
     model_config = ConfigDict(title="TaxiiCollection")
     id: str
@@ -43,6 +39,11 @@ class TaxiiCollectionModel(BaseModel):
     media_types: list[TaxiiCollectionMediaTypes] = Field(
         default_factory=lambda: list(TaxiiCollectionMediaTypes)
     )
+
+
+class TaxiiCollectionsRootResponseModel(BaseModel):
+    model_config = ConfigDict(title="TaxiiCollectionsRootResponse")
+    collections: list[TaxiiCollectionModel]
 
 
 class TaxiiCollectionResponseModel(BaseModel):

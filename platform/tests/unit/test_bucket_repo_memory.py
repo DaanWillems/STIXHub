@@ -1,4 +1,4 @@
-from models.domain import Bucket, StixEntity
+from models.domain import Bucket
 from repositories.bucket import InMemoryBucketRepository
 
 

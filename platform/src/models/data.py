@@ -1,7 +1,7 @@
 from datetime import datetime
-from sqlalchemy.ext.mutable import MutableList, MutableDict
+from sqlalchemy.ext.mutable import MutableDict
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
