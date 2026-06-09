@@ -13,4 +13,5 @@ class Settings(BaseSettings):
     DATABASE_USE_NULLPOOL: bool = False
     DATABASE_ENGINE_ECHO: bool = True
 
+
 settings = Settings()

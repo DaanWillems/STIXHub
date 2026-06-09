@@ -3,12 +3,18 @@ from collections.abc import AsyncGenerator
 
 from fastapi.concurrency import asynccontextmanager
 from sqlalchemy import URL, NullPool
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from config import settings
 from models.data import Base
 
 logger = logging.getLogger(__name__)
+
 
 class Database:
     def __init__(self) -> None:

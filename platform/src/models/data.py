@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy.ext.mutable import MutableList, MutableDict
 
-from sqlalchemy import Boolean, DateTime, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -29,25 +29,25 @@ class StixType(Enum):
     ThreatActor = "threat-actor"
     Tool = "tool"
     Vulnerability = "vulnerability"
- 
+
     # --- SCOs ---
     DomainName = "domain-name"
     IPV4Addr = "ipv4-addr"
     URL = "url"
- 
+
     # --- SMOs ---
     MarkingDefinition = "marking-definition"
- 
+
     # --- SROs ---
     Relationship = "relationship"
     Sighting = "sighting"
- 
+
     # --- Platform-internal meta types ---
     Object = "object"
     Observable = "observable"
     Entity = "entity"
- 
- 
+
+
 SDO_TYPES = [
     StixType.AttackPattern,
     StixType.Campaign,
@@ -71,18 +71,21 @@ SDO_TYPES = [
 
 SCO_TYPES = [StixType.DomainName, StixType.IPV4Addr, StixType.URL]
 
+
 class Base(DeclarativeBase):
     """Base is a class to define base for our models"""
+
 
 class BucketModel(Base):
     __tablename__ = "bucket_model"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(nullable=False)
 
+
 class StixEntityModel(Base):
     __tablename__ = "stix_entity_model"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    bucket_id: Mapped[int]
+    bucket_id: Mapped[int] = mapped_column(ForeignKey("bucket_model.id"))
     stix_id: Mapped[str]
     type: Mapped[str] = mapped_column(String(30))
     spec_version: Mapped[str] = mapped_column(String(30))
