@@ -6,9 +6,7 @@ from models.data import Base
 from repositories.bucket import DatabaseBucketRepository
 
 
-DATABASE_URL = (
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
-)
+DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/app"
 
 
 @pytest.fixture(scope="session")
@@ -26,7 +24,9 @@ async def engine():
 async def session(engine):
     async with engine.connect() as conn:
         await conn.begin()
-        sess = AsyncSession(bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint")
+        sess = AsyncSession(
+            bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
+        )
         yield sess
         await sess.close()
         await conn.rollback()

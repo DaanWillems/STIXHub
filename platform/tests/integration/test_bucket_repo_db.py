@@ -58,7 +58,10 @@ async def test_get_raises_when_bucket_not_found(repo: DatabaseBucketRepository):
 
 async def test_add_entities(repo: DatabaseBucketRepository):
     bucket = await repo.save(Bucket(name="test-bucket"))
-    entities = [make_entity(bucket.id, "indicator--1"), make_entity(bucket.id, "indicator--2")]
+    entities = [
+        make_entity(bucket.id, "indicator--1"),
+        make_entity(bucket.id, "indicator--2"),
+    ]
 
     await repo.add_entities(bucket.id, entities)
 
@@ -67,7 +70,9 @@ async def test_add_entities(repo: DatabaseBucketRepository):
     assert {e.stix_id for e in stored} == {"indicator--1", "indicator--2"}
 
 
-async def test_add_entities_raises_when_bucket_not_found(repo: DatabaseBucketRepository):
+async def test_add_entities_raises_when_bucket_not_found(
+    repo: DatabaseBucketRepository,
+):
     with pytest.raises(ValueError):
         await repo.add_entities(999999, [make_entity(999999)])
 
@@ -81,7 +86,9 @@ async def test_get_entities_by_bucket_name(repo: DatabaseBucketRepository):
     assert len(stored) == 1
 
 
-async def test_get_entities_returns_empty_for_new_bucket(repo: DatabaseBucketRepository):
+async def test_get_entities_returns_empty_for_new_bucket(
+    repo: DatabaseBucketRepository,
+):
     bucket = await repo.save(Bucket(name="test-bucket"))
 
     stored = await repo.get_entities(bucket_id=bucket.id)
@@ -111,7 +118,13 @@ async def test_delete_bucket(repo: DatabaseBucketRepository):
 
 async def test_acquire_entities_marks_as_processing(repo: DatabaseBucketRepository):
     bucket = await repo.save(Bucket(name="test-bucket"))
-    await repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--1"), make_entity(bucket.id, "indicator--2")])
+    await repo.add_entities(
+        bucket.id,
+        [
+            make_entity(bucket.id, "indicator--1"),
+            make_entity(bucket.id, "indicator--2"),
+        ],
+    )
 
     acquired = await repo.acquire_entities(bucket.id, 2)
 
@@ -121,16 +134,22 @@ async def test_acquire_entities_marks_as_processing(repo: DatabaseBucketReposito
 
 async def test_acquire_entities_respects_limit(repo: DatabaseBucketRepository):
     bucket = await repo.save(Bucket(name="test-bucket"))
-    await repo.add_entities(bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)])
+    await repo.add_entities(
+        bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
+    )
 
     acquired = await repo.acquire_entities(bucket.id, 3)
 
     assert len(acquired) == 3
 
 
-async def test_acquire_entities_skips_already_processing(repo: DatabaseBucketRepository):
+async def test_acquire_entities_skips_already_processing(
+    repo: DatabaseBucketRepository,
+):
     bucket = await repo.save(Bucket(name="test-bucket"))
-    await repo.add_entities(bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(4)])
+    await repo.add_entities(
+        bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(4)]
+    )
 
     first_batch = await repo.acquire_entities(bucket.id, 2)
     second_batch = await repo.acquire_entities(bucket.id, 4)
@@ -141,7 +160,9 @@ async def test_acquire_entities_skips_already_processing(repo: DatabaseBucketRep
     assert len(second_batch) == 2
 
 
-async def test_acquire_entities_returns_empty_when_none_pending(repo: DatabaseBucketRepository):
+async def test_acquire_entities_returns_empty_when_none_pending(
+    repo: DatabaseBucketRepository,
+):
     bucket = await repo.save(Bucket(name="test-bucket"))
     await repo.add_entities(bucket.id, [make_entity(bucket.id)])
     await repo.acquire_entities(bucket.id, 1)
