@@ -1,8 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+
+
+class ProcessingStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    processed = "processed"
 
 
 @dataclass
@@ -23,6 +29,7 @@ class StixEntity:
     platform_modified: datetime
     platform_created: datetime
     object: dict
+    status: ProcessingStatus = field(default=ProcessingStatus.pending)
 
 
 class TaxiiCollectionMediaTypes(str, Enum):

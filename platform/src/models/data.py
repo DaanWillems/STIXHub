@@ -1,12 +1,13 @@
 from datetime import datetime
 from sqlalchemy.ext.mutable import MutableDict
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from enum import Enum
+from models.domain import ProcessingStatus
 
 
 class StixType(Enum):
@@ -91,9 +92,21 @@ class StixEntityModel(Base):
     spec_version: Mapped[str] = mapped_column(String(30))
     creator: Mapped[str] = mapped_column(nullable=False)
     value: Mapped[str] = mapped_column(nullable=False)
-    platform_modified: Mapped[datetime]
+    platform_modified: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     platform_created: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    status: Mapped[str] = mapped_column(
+        SAEnum(
+            ProcessingStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name="processing_status",
+        ),
+        default=ProcessingStatus.pending.value,
+        server_default=ProcessingStatus.pending.value,
+        nullable=False,
+    )
     object = mapped_column(MutableDict.as_mutable(JSONB))
