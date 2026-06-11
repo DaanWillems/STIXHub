@@ -36,7 +36,11 @@ class BucketRepository(ABC):
 
     @abstractmethod
     async def get_entities(
-        self, bucket_id: int = None, bucket_name: str = None
+        self,
+        bucket_id: int = None,
+        bucket_name: str = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[StixEntity]: ...
 
     @abstractmethod
@@ -74,23 +78,33 @@ class InMemoryBucketRepository(BucketRepository):
         return None
 
     async def get_entities(
-        self, bucket_id: int = None, bucket_name: str = None
+        self,
+        bucket_id: int = None,
+        bucket_name: str = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[StixEntity]:
         if bucket_name is None and bucket_id is not None:
-            return self._store[bucket_id][1]
-        if bucket_name is not None and bucket_id is None:
+            entities = self._store[bucket_id][1]
+        elif bucket_name is not None and bucket_id is None:
+            entities = None
             for _, v in self._store.items():
                 if v[0].name == bucket_name:
-                    return v[1]
+                    entities = v[1]
+                    break
         else:
             raise Exception("Cannot filter on both id and name at the same time")
-        return None
+        if entities is None:
+            return []
+        start = offset or 0
+        return entities[start : start + limit] if limit is not None else entities[start:]
 
     async def add_entities(
         self, bucket_id: int, entities_in: list[StixEntity]
     ) -> Bucket:
-        self._store[bucket_id][1] = self._store[bucket_id][1] + entities_in
-        return self._store[bucket_id]
+        bucket, entities = self._store[bucket_id]
+        self._store[bucket_id] = (bucket, entities + entities_in)
+        return bucket
 
     async def delete(self, bucket_id: int) -> None:
         del self._store[bucket_id]
@@ -134,7 +148,11 @@ class DatabaseBucketRepository(BucketRepository):
         raise ValueError("Provide exactly one of bucket_id or bucket_name")
 
     async def get_entities(
-        self, bucket_id: int = None, bucket_name: str = None
+        self,
+        bucket_id: int = None,
+        bucket_name: str = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[StixEntity]:
         if bucket_id is None and bucket_name is not None:
             bucket = await self.get(bucket_name=bucket_name)
@@ -142,9 +160,16 @@ class DatabaseBucketRepository(BucketRepository):
         elif bucket_id is None:
             raise ValueError("Provide exactly one of bucket_id or bucket_name")
 
-        result = await self._session.execute(
-            select(StixEntityModel).where(StixEntityModel.bucket_id == bucket_id)
+        query = (
+            select(StixEntityModel)
+            .where(StixEntityModel.bucket_id == bucket_id)
+            .order_by(StixEntityModel.id)
         )
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        result = await self._session.execute(query)
         return [_entity_from_model(row) for row in result.scalars().all()]
 
     async def add_entities(
@@ -186,6 +211,7 @@ class DatabaseBucketRepository(BucketRepository):
                 StixEntityModel.bucket_id == bucket_id,
                 StixEntityModel.status == ProcessingStatus.pending.value,
             )
+            .order_by(StixEntityModel.platform_modified)
             .limit(n)
             .with_for_update(skip_locked=True)
         )

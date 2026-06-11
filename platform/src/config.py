@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +14,7 @@ class Settings(BaseSettings):
     DATABASE_PASS: str
     DATABASE_USE_NULLPOOL: bool = False
     DATABASE_ENGINE_ECHO: bool = True
+    BUCKET_REPO_BACKEND: Literal["memory", "database"] = "database"
 
 
 settings = Settings()
