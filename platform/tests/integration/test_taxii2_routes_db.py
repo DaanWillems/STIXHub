@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
 import pytest
@@ -42,13 +43,18 @@ async def bucket(repo: DatabaseBucketRepository) -> Bucket:
     return await repo.save(Bucket(name="Example collection"))
 
 
-async def test_empty_bucket_returns_empty_objects(
-    repo: DatabaseBucketRepository, bucket: Bucket
-) -> None:
+@pytest.fixture
+async def client(repo: DatabaseBucketRepository) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(
         transport=ASGITransport(app=make_app(repo)), base_url="http://test"
-    ) as client:
-        response = await client.get(OBJECTS_URL)
+    ) as ac:
+        yield ac
+
+
+async def test_empty_bucket_returns_empty_objects(
+    client: AsyncClient, bucket: Bucket
+) -> None:
+    response = await client.get(OBJECTS_URL)
 
     assert response.status_code == 200
     body = response.json()
@@ -58,22 +64,13 @@ async def test_empty_bucket_returns_empty_objects(
 
 
 async def test_returns_objects_from_correct_bucket(
-    repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
     other_bucket = await repo.save(Bucket(name="other-bucket"))
-    await repo.add_entities(
-        bucket.id,
-        [make_entity(bucket.id, "indicator--correct")],
-    )
-    await repo.add_entities(
-        other_bucket.id,
-        [make_entity(other_bucket.id, "indicator--wrong")],
-    )
+    await repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--correct")])
+    await repo.add_entities(other_bucket.id, [make_entity(other_bucket.id, "indicator--wrong")])
 
-    async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo)), base_url="http://test"
-    ) as client:
-        response = await client.get(OBJECTS_URL)
+    response = await client.get(OBJECTS_URL)
 
     assert response.status_code == 200
     body = response.json()
@@ -82,16 +79,13 @@ async def test_returns_objects_from_correct_bucket(
 
 
 async def test_returns_all_objects_when_under_limit(
-    repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
     await repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(3)]
     )
 
-    async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo)), base_url="http://test"
-    ) as client:
-        response = await client.get(OBJECTS_URL, params={"limit": 10})
+    response = await client.get(OBJECTS_URL, params={"limit": 10})
 
     assert response.status_code == 200
     body = response.json()
@@ -101,16 +95,13 @@ async def test_returns_all_objects_when_under_limit(
 
 
 async def test_pagination_sets_more_and_next_cursor(
-    repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
     await repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
     )
 
-    async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo)), base_url="http://test"
-    ) as client:
-        response = await client.get(OBJECTS_URL, params={"limit": 3})
+    response = await client.get(OBJECTS_URL, params={"limit": 3})
 
     assert response.status_code == 200
     body = response.json()
@@ -120,19 +111,14 @@ async def test_pagination_sets_more_and_next_cursor(
 
 
 async def test_cursor_advances_to_next_page(
-    repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
     await repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i:04d}") for i in range(5)]
     )
 
-    app = make_app(repo)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        first = await client.get(OBJECTS_URL, params={"limit": 3})
-        cursor = first.json()["next"]
-        second = await client.get(OBJECTS_URL, params={"limit": 3, "next": cursor})
+    first = await client.get(OBJECTS_URL, params={"limit": 3})
+    second = await client.get(OBJECTS_URL, params={"limit": 3, "next": first.json()["next"]})
 
     assert second.status_code == 200
     second_body = second.json()
@@ -147,42 +133,30 @@ async def test_cursor_advances_to_next_page(
 
 
 async def test_pages_are_stable_and_ordered(
-    repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
     await repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i:04d}") for i in range(6)]
     )
 
-    app = make_app(repo)
     all_ids: list[str] = []
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        cursor = None
-        while True:
-            params: dict[str, object] = {"limit": 2}
-            if cursor:
-                params["next"] = cursor
-            response = await client.get(OBJECTS_URL, params=params)
-            body = response.json()
-            all_ids.extend(o["id"] for o in body["objects"])
-            if not body["more"]:
-                break
-            cursor = body["next"]
+    cursor = None
+    while True:
+        params: dict[str, object] = {"limit": 2}
+        if cursor:
+            params["next"] = cursor
+        body = (await client.get(OBJECTS_URL, params=params)).json()
+        all_ids.extend(o["id"] for o in body["objects"])
+        if not body["more"]:
+            break
+        cursor = body["next"]
 
     assert len(all_ids) == 6
     assert all_ids == sorted(all_ids)
 
 
-async def test_unknown_collection_returns_404(
-    repo: DatabaseBucketRepository,
-) -> None:
-    async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo)), base_url="http://test"
-    ) as client:
-        response = await client.get(
-            "/taxii2/root/collections/does-not-exist/objects/"
-        )
+async def test_unknown_collection_returns_404(client: AsyncClient) -> None:
+    response = await client.get("/taxii2/root/collections/does-not-exist/objects/")
 
     assert response.status_code == 404
     body = response.json()
