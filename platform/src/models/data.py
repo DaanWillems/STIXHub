@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from sqlalchemy.ext.mutable import MutableDict
 
 from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String
@@ -110,3 +111,4 @@ class StixEntityModel(Base):
         nullable=False,
     )
     object = mapped_column(MutableDict.as_mutable(JSONB))
+    other_stix_ids: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True, default=None)

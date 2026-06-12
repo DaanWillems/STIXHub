@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
@@ -9,6 +9,10 @@ class ProcessingStatus(str, Enum):
     pending = "pending"
     processing = "processing"
     processed = "processed"
+
+
+class BucketMode(str, Enum):
+    append = "append"
 
 
 @dataclass
@@ -30,6 +34,7 @@ class StixEntity:
     platform_created: datetime
     object: dict
     status: ProcessingStatus = field(default=ProcessingStatus.pending)
+    other_stix_ids: list[str] = field(default_factory=list)
 
 
 class TaxiiCollectionMediaTypes(str, Enum):
@@ -95,3 +100,30 @@ class TaxiiObjectResponseModel(BaseModel):
     more: bool = False
     next: str | None = None
     objects: list[dict[str, Any]]
+
+
+class TaxiiStatusRef(BaseModel):
+    id: str
+    version: str | None = None
+    message: str | None = None
+
+
+class TaxiiWriteStatusModel(BaseModel):
+    model_config = ConfigDict(title="TaxiiWriteStatus")
+    id: str
+    status: Literal["complete", "complete_with_errors"]
+    request_timestamp: str
+    total_count: int
+    success_count: int
+    failure_count: int
+    pending_count: int = 0
+    successes: list[TaxiiStatusRef] = Field(default_factory=list)
+    failures: list[TaxiiStatusRef] = Field(default_factory=list)
+    pendings: list[TaxiiStatusRef] = Field(default_factory=list)
+
+
+@dataclass
+class CollectionConfig:
+    taxii_collection: TaxiiCollectionModel
+    bucket_name: str
+    mode: BucketMode

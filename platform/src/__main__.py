@@ -1,7 +1,9 @@
 import contextlib
 from collections.abc import AsyncGenerator
+from config import settings
 from database import db
-from routes.taxii2 import taxii2_router
+from repositories.bucket import DatabaseBucketRepository
+from routes.taxii2 import taxii2_router, validate_collections
 
 import uvicorn
 from fastapi import FastAPI
@@ -10,6 +12,9 @@ from fastapi import FastAPI
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
     await db.create_tables()
+    if settings.BUCKET_REPO_BACKEND == "database":
+        async with db.get_session() as session:
+            await validate_collections(DatabaseBucketRepository(session))
     yield
     await db.dispose()
 

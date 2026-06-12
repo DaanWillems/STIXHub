@@ -24,6 +24,7 @@ def _entity_from_model(model: StixEntityModel) -> StixEntity:
         platform_created=model.platform_created,
         object=model.object,
         status=ProcessingStatus(model.status),
+        other_stix_ids=model.other_stix_ids or [],
     )
 
 
@@ -191,6 +192,7 @@ class DatabaseBucketRepository(BucketRepository):
                 value=entity.value,
                 platform_modified=entity.platform_modified,
                 object=entity.object,
+                other_stix_ids=entity.other_stix_ids,
             )
             self._session.add(model)
         await self._session.flush()
