@@ -16,6 +16,7 @@ STIXHub is currently not production ready, but does already support a number of 
 **The following features are planned:**\
 \
 :heavy_exclamation_mark: Bucket merge mode for deduplication\
+:heavy_exclamation_mark: User management and RBAC on buckets\
 :heavy_exclamation_mark: Collector service to read external TAXII 2.1 endpoints\
 :heavy_exclamation_mark: Collector service to read external MISP endpoints\
 :heavy_exclamation_mark: Pipelines to move and transform data between buckets\
@@ -24,7 +25,11 @@ STIXHub is currently not production ready, but does already support a number of 
 **Possible features:** \
 \
 :question: External buckets to outsource entity processing\
-:question: CSV exporter for easy integration with legacy systems
+:question: CSV exporter for easy integration with legacy systems \
+:question: Frontend for exploring data \
+:question: Frontend for enabling human driven workflows (triaging and labelling intelligence) \
+:question: MCP integration for enabling agent driven workflows (triaging and labelling intelligence) \
+
 # Getting started
 ## Docker deploy
 ## Development environment
