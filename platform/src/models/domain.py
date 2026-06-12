@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
@@ -80,6 +80,18 @@ class TaxiiRootResponseModel(BaseModel):
     max_content_length: PositiveInt
 
 
+class TaxiiErrorModel(BaseModel):
+    model_config = ConfigDict(title="TaxiiError")
+    title: str
+    description: str | None = None
+    error_id: str | None = None
+    error_code: str | None = None
+    http_status: str | None = None
+    details: dict[str, Any] | None = None
+
+
 class TaxiiObjectResponseModel(BaseModel):
     model_config = ConfigDict(title="TaxiiObjectResponse")
-    objects: list[dict]
+    more: bool = False
+    next: str | None = None
+    objects: list[dict[str, Any]]

@@ -116,6 +116,39 @@ async def test_delete_bucket(repo: DatabaseBucketRepository):
     assert await repo.get_entities(bucket_id=bucket.id) == []
 
 
+async def test_get_entities_with_limit(repo: DatabaseBucketRepository):
+    bucket = await repo.save(Bucket(name="test-bucket"))
+    await repo.add_entities(
+        bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
+    )
+
+    stored = await repo.get_entities(bucket_id=bucket.id, limit=3)
+
+    assert len(stored) == 3
+
+
+async def test_get_entities_with_offset(repo: DatabaseBucketRepository):
+    bucket = await repo.save(Bucket(name="test-bucket"))
+    await repo.add_entities(
+        bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
+    )
+
+    stored = await repo.get_entities(bucket_id=bucket.id, offset=3)
+
+    assert len(stored) == 2
+
+
+async def test_get_entities_with_limit_and_offset(repo: DatabaseBucketRepository):
+    bucket = await repo.save(Bucket(name="test-bucket"))
+    await repo.add_entities(
+        bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
+    )
+
+    stored = await repo.get_entities(bucket_id=bucket.id, limit=2, offset=2)
+
+    assert len(stored) == 2
+
+
 async def test_acquire_entities_marks_as_processing(repo: DatabaseBucketRepository):
     bucket = await repo.save(Bucket(name="test-bucket"))
     await repo.add_entities(
