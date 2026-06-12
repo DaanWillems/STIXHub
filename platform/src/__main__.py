@@ -19,9 +19,7 @@ def _load_platform_config() -> PlatformConfig:
     try:
         raw = yaml.safe_load(config_path.read_text())
     except FileNotFoundError:
-        raise RuntimeError(
-            f"Platform config file not found: {config_path.resolve()}"
-        )
+        raise RuntimeError(f"Platform config file not found: {config_path.resolve()}")
     except yaml.YAMLError as exc:
         raise RuntimeError(
             f"Invalid YAML in platform config at {config_path.resolve()}: {exc}"

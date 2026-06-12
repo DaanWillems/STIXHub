@@ -32,6 +32,9 @@ The main functionality of the platform is store and distribute STIX via TAXII. H
 Phase 1:
 - Read and write collections
 - Only single node deployment
+- RBAC and user management
+- Config management
+- Bucket merge mode
 
 Phase 2:
 - Collector service

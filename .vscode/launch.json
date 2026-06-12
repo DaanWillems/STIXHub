@@ -15,7 +15,8 @@
                 "STIX_HUB_DATABASE_PASS": "postgres",
                 "STIX_HUB_DATABASE_USE_NULLPOOL": "false",
                 "STIX_HUB_DATABASE_ENGINE_ECHO": "true",
-                "STIX_HUB_BUCKET_REPO_BACKEND": "database"
+                "STIX_HUB_BUCKET_REPO_BACKEND": "database",
+                "STIX_HUB_PLATFORM_CONFIG": "../platform_config.yaml"
             }
         }
     ]

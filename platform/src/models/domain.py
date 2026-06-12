@@ -146,5 +146,3 @@ class TaxiiWriteStatusModel(BaseModel):
     successes: list[TaxiiStatusRef] = Field(default_factory=list)
     failures: list[TaxiiStatusRef] = Field(default_factory=list)
     pendings: list[TaxiiStatusRef] = Field(default_factory=list)
-
-
