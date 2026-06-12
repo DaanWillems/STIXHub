@@ -1,0 +1,19 @@
+buckets:
+  - name: Example collection
+    mode: append
+  - name: Example collection 2
+    mode: append
+
+collections:
+  - id: 70a16fcf-8146-2da8-be66-6ca6fb7280af
+    title: Example collection
+    description: Example TAXII 2.1 collection backed by the 'Example collection' bucket
+    can_read: true
+    can_write: true
+    bucket_name: Example collection
+  - id: 70a16fcf-8146-2da8-be66-6ca6fb7280ab
+    title: Example collection 2
+    description: Example TAXII 2.1 collection backed by the 'Example collection 2' bucket
+    can_read: true
+    can_write: false
+    bucket_name: Example collection 2

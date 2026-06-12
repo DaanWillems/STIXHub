@@ -7,7 +7,7 @@ from routes.taxii2 import provision_buckets
 
 async def test_provision_creates_missing_bucket() -> None:
     repo = InMemoryBucketRepository()
-    configs = {"my-bucket": BucketConfig(name="my-bucket", mode=BucketMode.append)}
+    configs = [BucketConfig(name="my-bucket", mode=BucketMode.append)]
 
     await provision_buckets(repo, configs)
 
@@ -18,7 +18,7 @@ async def test_provision_creates_missing_bucket() -> None:
 
 async def test_provision_is_idempotent() -> None:
     repo = InMemoryBucketRepository()
-    configs = {"my-bucket": BucketConfig(name="my-bucket", mode=BucketMode.append)}
+    configs = [BucketConfig(name="my-bucket", mode=BucketMode.append)]
 
     await provision_buckets(repo, configs)
     await provision_buckets(repo, configs)
@@ -30,7 +30,7 @@ async def test_provision_is_idempotent() -> None:
 async def test_provision_merge_to_append_updates_mode() -> None:
     repo = InMemoryBucketRepository()
     await repo.save(Bucket(name="my-bucket", mode=BucketMode.merge))
-    configs = {"my-bucket": BucketConfig(name="my-bucket", mode=BucketMode.append)}
+    configs = [BucketConfig(name="my-bucket", mode=BucketMode.append)]
 
     await provision_buckets(repo, configs)
 
@@ -41,7 +41,7 @@ async def test_provision_merge_to_append_updates_mode() -> None:
 async def test_provision_append_to_merge_raises() -> None:
     repo = InMemoryBucketRepository()
     await repo.save(Bucket(name="my-bucket", mode=BucketMode.append))
-    configs = {"my-bucket": BucketConfig(name="my-bucket", mode=BucketMode.merge)}
+    configs = [BucketConfig(name="my-bucket", mode=BucketMode.merge)]
 
     with pytest.raises(RuntimeError, match="cannot change from append to merge"):
         await provision_buckets(repo, configs)
@@ -50,7 +50,7 @@ async def test_provision_append_to_merge_raises() -> None:
 async def test_provision_same_mode_is_no_op() -> None:
     repo = InMemoryBucketRepository()
     await repo.save(Bucket(name="my-bucket", mode=BucketMode.merge))
-    configs = {"my-bucket": BucketConfig(name="my-bucket", mode=BucketMode.merge)}
+    configs = [BucketConfig(name="my-bucket", mode=BucketMode.merge)]
 
     await provision_buckets(repo, configs)
 
@@ -60,10 +60,10 @@ async def test_provision_same_mode_is_no_op() -> None:
 
 async def test_provision_multiple_buckets() -> None:
     repo = InMemoryBucketRepository()
-    configs = {
-        "bucket-a": BucketConfig(name="bucket-a", mode=BucketMode.append),
-        "bucket-b": BucketConfig(name="bucket-b", mode=BucketMode.merge),
-    }
+    configs = [
+        BucketConfig(name="bucket-a", mode=BucketMode.append),
+        BucketConfig(name="bucket-b", mode=BucketMode.merge),
+    ]
 
     await provision_buckets(repo, configs)
 

@@ -2,50 +2,35 @@
 
 ## Overview
 
-Buckets are defined in code (config-as-code) alongside collection config. At startup, the platform provisions any missing buckets and validates all collection references before serving requests.
+Buckets are defined in an external YAML file alongside collection config. At startup, the platform provisions any missing buckets and validates all collection references before serving requests. See [platform-config.md](platform-config.md) for how the YAML file is loaded and where it lives.
 
 ## BucketConfig
 
-A new `BucketConfig` dataclass holds the bucket definition:
+`BucketConfig` is a pydantic `BaseModel`:
 
 ```python
-@dataclass
-class BucketConfig:
+class BucketConfig(BaseModel):
     name: str
     mode: BucketMode
 ```
 
-`BucketMode` moves from `CollectionConfig` to `BucketConfig`, since mode is a property of how a bucket stores data, not of how a collection writes to it.
+`BucketMode` is a property of how a bucket stores data, not of how a collection writes to it.
 
-## CollectionConfig change
+## CollectionConfig
 
-`CollectionConfig` loses the `mode` field:
+`CollectionConfig` is a pydantic `BaseModel` with no `mode` field:
 
 ```python
-@dataclass
-class CollectionConfig:
-    taxii_collection: TaxiiCollectionModel
+class CollectionConfig(BaseModel):
+    id: str
+    title: str
+    description: str
+    can_read: bool
+    can_write: bool
     bucket_name: str
 ```
 
-## platform_config.py
-
-A new `platform_config.py` module holds both config dicts. This is the single place to edit when wiring up new buckets and collections:
-
-```python
-BUCKET_CONFIGS: dict[str, BucketConfig] = {
-    "raw-intel": BucketConfig(name="raw-intel", mode=BucketMode.append),
-}
-
-COLLECTION_CONFIGS: dict[str, CollectionConfig] = {
-    "70a16fcf-...": CollectionConfig(
-        taxii_collection=TaxiiCollectionModel(...),
-        bucket_name="raw-intel",
-    ),
-}
-```
-
-`taxii2.py` imports `COLLECTION_CONFIGS` from here instead of defining it inline.
+Both models live in `models/domain.py` and are parsed from YAML via the `PlatformConfig` wrapper — see [platform-config.md](platform-config.md).
 
 ## Database change
 

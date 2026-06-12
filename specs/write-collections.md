@@ -6,16 +6,21 @@ Write collections expose a TAXII 2.1 compliant `POST /root/collections/{id}/obje
 
 ## Collection Configuration
 
-Collections are defined in code (config-as-code) in `platform_config.py`, not stored in the database. `CollectionConfig` wraps the TAXII response model with internal routing concerns:
+Collections are defined in an external YAML file, not stored in the database and not hardcoded in Python. See [platform-config.md](platform-config.md) for the file format and loading mechanism.
+
+`CollectionConfig` is a pydantic `BaseModel` that holds TAXII fields plus the internal `bucket_name` routing field:
 
 ```python
-@dataclass
-class CollectionConfig:
-    taxii_collection: TaxiiCollectionModel
+class CollectionConfig(BaseModel):
+    id: str
+    title: str
+    description: str
+    can_read: bool
+    can_write: bool
     bucket_name: str
 ```
 
-`TaxiiCollectionModel` remains a pure TAXII response model. `bucket_name` is platform-internal and never exposed to clients. `BucketMode` is a property of the bucket, not the collection — see [bucket-config.md](bucket-config.md).
+`bucket_name` is platform-internal and never exposed to clients. `BucketMode` is a property of the bucket, not the collection — see [bucket-config.md](bucket-config.md). The route layer constructs a `TaxiiCollectionModel` from a `CollectionConfig` when building API responses.
 
 ## Startup Validation
 

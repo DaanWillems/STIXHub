@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from dependencies import get_bucket_repo
-from models.domain import Bucket, StixEntity
+from models.domain import Bucket, CollectionConfig, StixEntity
 from repositories.bucket import DatabaseBucketRepository
 from routes.taxii2 import taxii2_router
 
@@ -14,11 +14,21 @@ from routes.taxii2 import taxii2_router
 COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
+_DEFAULT_COLLECTION = CollectionConfig(
+    id=COLLECTION_ID,
+    title="Example collection",
+    description="test",
+    can_read=True,
+    can_write=True,
+    bucket_name="Example collection",
+)
+
 
 def make_app(repo: DatabaseBucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
     app.dependency_overrides[get_bucket_repo] = lambda: repo
+    app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
     return app
 
 

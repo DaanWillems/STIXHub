@@ -16,10 +16,23 @@ class BucketMode(str, Enum):
     merge = "merge"
 
 
-@dataclass
-class BucketConfig:
+class BucketConfig(BaseModel):
     name: str
     mode: BucketMode
+
+
+class CollectionConfig(BaseModel):
+    id: str
+    title: str
+    description: str
+    can_read: bool
+    can_write: bool
+    bucket_name: str
+
+
+class PlatformConfig(BaseModel):
+    buckets: list[BucketConfig]
+    collections: list[CollectionConfig]
 
 
 @dataclass
@@ -133,9 +146,3 @@ class TaxiiWriteStatusModel(BaseModel):
     successes: list[TaxiiStatusRef] = Field(default_factory=list)
     failures: list[TaxiiStatusRef] = Field(default_factory=list)
     pendings: list[TaxiiStatusRef] = Field(default_factory=list)
-
-
-@dataclass
-class CollectionConfig:
-    taxii_collection: TaxiiCollectionModel
-    bucket_name: str
