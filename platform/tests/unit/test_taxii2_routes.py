@@ -5,7 +5,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from dependencies import get_bucket_repo
-from models.domain import Bucket, BucketMode, CollectionConfig, StixEntity, TaxiiCollectionModel
+from models.domain import Bucket, CollectionConfig, StixEntity, TaxiiCollectionModel
 from repositories.bucket import BucketRepository, InMemoryBucketRepository
 from routes.taxii2 import get_dummy_collections, taxii2_router
 
@@ -59,8 +59,13 @@ OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
 # --- Read endpoint tests ---
 
-async def test_unknown_collection_returns_404(readable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test") as client:
+
+async def test_unknown_collection_returns_404(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test"
+    ) as client:
         response = await client.get("/taxii2/root/collections/does-not-exist/objects/")
 
     assert response.status_code == 404
@@ -69,7 +74,9 @@ async def test_unknown_collection_returns_404(readable_repo: InMemoryBucketRepos
     assert body["http_status"] == "404"
 
 
-async def test_unreadable_collection_returns_403(readable_repo: InMemoryBucketRepository) -> None:
+async def test_unreadable_collection_returns_403(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
     unreadable_id = "unreadable-collection-id"
 
     def get_unreadable_collections() -> dict:  # type: ignore[type-arg]
@@ -84,15 +91,18 @@ async def test_unreadable_collection_returns_403(readable_repo: InMemoryBucketRe
                     media_types=[],
                 ),
                 bucket_name="Example collection",
-                mode=BucketMode.append,
             )
         }
 
     app = make_app(readable_repo)
     app.dependency_overrides[get_dummy_collections] = get_unreadable_collections
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get(f"/taxii2/root/collections/{unreadable_id}/objects/")
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/taxii2/root/collections/{unreadable_id}/objects/"
+        )
 
     assert response.status_code == 403
     body = response.json()
@@ -100,8 +110,12 @@ async def test_unreadable_collection_returns_403(readable_repo: InMemoryBucketRe
     assert body["http_status"] == "403"
 
 
-async def test_empty_bucket_returns_empty_objects(empty_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(empty_repo)), base_url="http://test") as client:
+async def test_empty_bucket_returns_empty_objects(
+    empty_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(empty_repo)), base_url="http://test"
+    ) as client:
         response = await client.get(OBJECTS_URL)
 
     assert response.status_code == 200
@@ -111,8 +125,12 @@ async def test_empty_bucket_returns_empty_objects(empty_repo: InMemoryBucketRepo
     assert "next" not in body
 
 
-async def test_returns_all_objects_when_under_limit(readable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test") as client:
+async def test_returns_all_objects_when_under_limit(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test"
+    ) as client:
         response = await client.get(OBJECTS_URL, params={"limit": 10})
 
     assert response.status_code == 200
@@ -122,8 +140,12 @@ async def test_returns_all_objects_when_under_limit(readable_repo: InMemoryBucke
     assert "next" not in body
 
 
-async def test_pagination_sets_more_and_next_cursor(readable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test") as client:
+async def test_pagination_sets_more_and_next_cursor(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test"
+    ) as client:
         response = await client.get(OBJECTS_URL, params={"limit": 2})
 
     assert response.status_code == 200
@@ -133,9 +155,13 @@ async def test_pagination_sets_more_and_next_cursor(readable_repo: InMemoryBucke
     assert "next" in body
 
 
-async def test_next_cursor_advances_page(readable_repo: InMemoryBucketRepository) -> None:
+async def test_next_cursor_advances_page(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
     app = make_app(readable_repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         first = await client.get(OBJECTS_URL, params={"limit": 2})
         cursor = first.json()["next"]
         second = await client.get(OBJECTS_URL, params={"limit": 2, "next": cursor})
@@ -148,9 +174,13 @@ async def test_next_cursor_advances_page(readable_repo: InMemoryBucketRepository
     assert first_ids.isdisjoint(second_ids)
 
 
-async def test_last_page_has_no_next_cursor(readable_repo: InMemoryBucketRepository) -> None:
+async def test_last_page_has_no_next_cursor(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
     app = make_app(readable_repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         first = await client.get(OBJECTS_URL, params={"limit": 3})
         cursor = first.json()["next"]
         last = await client.get(OBJECTS_URL, params={"limit": 3, "next": cursor})
@@ -162,8 +192,12 @@ async def test_last_page_has_no_next_cursor(readable_repo: InMemoryBucketReposit
     assert "next" not in body
 
 
-async def test_invalid_cursor_returns_400(readable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test") as client:
+async def test_invalid_cursor_returns_400(
+    readable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(readable_repo)), base_url="http://test"
+    ) as client:
         response = await client.get(OBJECTS_URL, params={"next": "not-valid-base64!!"})
 
     assert response.status_code == 400
@@ -173,6 +207,7 @@ async def test_invalid_cursor_returns_400(readable_repo: InMemoryBucketRepositor
 
 
 # --- Write endpoint tests ---
+
 
 @pytest.fixture
 async def writable_repo() -> AsyncGenerator[InMemoryBucketRepository, None]:
@@ -192,15 +227,23 @@ def _ipv4(value: str = "198.51.100.1") -> dict:  # type: ignore[type-arg]
     }
 
 
-async def test_write_unknown_collection_returns_404(writable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
-        response = await client.post("/taxii2/root/collections/no-such-id/objects/", json=_bundle(_ipv4()))
+async def test_write_unknown_collection_returns_404(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/taxii2/root/collections/no-such-id/objects/", json=_bundle(_ipv4())
+        )
 
     assert response.status_code == 404
     assert response.json()["title"] == "Collection Not Found"
 
 
-async def test_write_non_writable_collection_returns_403(writable_repo: InMemoryBucketRepository) -> None:
+async def test_write_non_writable_collection_returns_403(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
     readonly_id = "readonly-collection-id"
 
     def get_readonly() -> dict:  # type: ignore[type-arg]
@@ -215,22 +258,29 @@ async def test_write_non_writable_collection_returns_403(writable_repo: InMemory
                     media_types=[],
                 ),
                 bucket_name="Example collection",
-                mode=BucketMode.append,
             )
         }
 
     app = make_app(writable_repo)
     app.dependency_overrides[get_dummy_collections] = get_readonly
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(f"/taxii2/root/collections/{readonly_id}/objects/", json=_bundle(_ipv4()))
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            f"/taxii2/root/collections/{readonly_id}/objects/", json=_bundle(_ipv4())
+        )
 
     assert response.status_code == 403
     assert response.json()["title"] == "Forbidden"
 
 
-async def test_write_valid_object_returns_202_complete(writable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
+async def test_write_valid_object_returns_202_complete(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
         response = await client.post(OBJECTS_URL, json=_bundle(_ipv4()))
 
     assert response.status_code == 202
@@ -242,8 +292,12 @@ async def test_write_valid_object_returns_202_complete(writable_repo: InMemoryBu
     assert len(body["successes"]) == 1
 
 
-async def test_write_stores_object_in_bucket(writable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
+async def test_write_stores_object_in_bucket(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
         await client.post(OBJECTS_URL, json=_bundle(_ipv4("10.0.0.1")))
 
     entities = await writable_repo.get_entities(bucket_name="Example collection")
@@ -253,8 +307,12 @@ async def test_write_stores_object_in_bucket(writable_repo: InMemoryBucketReposi
     assert entities[0].other_stix_ids == ["ipv4-addr--original-10.0.0.1"]
 
 
-async def test_write_generates_deterministic_platform_id(writable_repo: InMemoryBucketRepository) -> None:
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
+async def test_write_generates_deterministic_platform_id(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
         await client.post(OBJECTS_URL, json=_bundle(_ipv4("10.0.0.1")))
         await client.post(OBJECTS_URL, json=_bundle(_ipv4("10.0.0.1")))
 
@@ -262,10 +320,18 @@ async def test_write_generates_deterministic_platform_id(writable_repo: InMemory
     assert entities[0].stix_id == entities[1].stix_id
 
 
-async def test_write_missing_required_field_is_failure(writable_repo: InMemoryBucketRepository) -> None:
-    bad_obj = {"type": "ipv4-addr", "spec_version": "2.1", "value": "1.2.3.4"}  # missing id
+async def test_write_missing_required_field_is_failure(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
+    bad_obj = {
+        "type": "ipv4-addr",
+        "spec_version": "2.1",
+        "value": "1.2.3.4",
+    }  # missing id
 
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
         response = await client.post(OBJECTS_URL, json=_bundle(bad_obj))
 
     assert response.status_code == 202
@@ -275,7 +341,9 @@ async def test_write_missing_required_field_is_failure(writable_repo: InMemoryBu
     assert body["failure_count"] == 1
 
 
-async def test_write_unimplemented_type_is_failure(writable_repo: InMemoryBucketRepository) -> None:
+async def test_write_unimplemented_type_is_failure(
+    writable_repo: InMemoryBucketRepository,
+) -> None:
     sro = {
         "type": "relationship",
         "id": "relationship--abc",
@@ -285,7 +353,9 @@ async def test_write_unimplemented_type_is_failure(writable_repo: InMemoryBucket
         "target_ref": "tool--y",
     }
 
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
         response = await client.post(OBJECTS_URL, json=_bundle(sro))
 
     assert response.status_code == 202
@@ -296,10 +366,18 @@ async def test_write_unimplemented_type_is_failure(writable_repo: InMemoryBucket
 
 
 async def test_write_partial_success(writable_repo: InMemoryBucketRepository) -> None:
-    bad_obj = {"type": "ipv4-addr", "spec_version": "2.1", "value": "1.2.3.4"}  # missing id
+    bad_obj = {
+        "type": "ipv4-addr",
+        "spec_version": "2.1",
+        "value": "1.2.3.4",
+    }  # missing id
 
-    async with AsyncClient(transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test") as client:
-        response = await client.post(OBJECTS_URL, json=_bundle(_ipv4("5.6.7.8"), bad_obj))
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            OBJECTS_URL, json=_bundle(_ipv4("5.6.7.8"), bad_obj)
+        )
 
     assert response.status_code == 202
     body = response.json()

@@ -11,6 +11,7 @@ def _base(type_: str, id_: str, **extra: object) -> dict:  # type: ignore[type-a
 
 # --- SCOs ---
 
+
 def test_ipv4_addr_value_and_id() -> None:
     raw = _base("ipv4-addr", "ipv4-addr--original", value="198.51.100.1")
     result = process(raw)
@@ -47,6 +48,7 @@ def test_sco_different_values_produce_different_ids() -> None:
 
 def test_sco_id_matches_stix21_spec() -> None:
     import json
+
     raw = _base("ipv4-addr", "ipv4-addr--original", value="198.51.100.0/24")
     result = process(raw)
     expected = f"ipv4-addr--{uuid.uuid5(STIX_NAMESPACE, json.dumps({'value': '198.51.100.0/24'}, sort_keys=True, separators=(',', ':')))}"
@@ -54,6 +56,7 @@ def test_sco_id_matches_stix21_spec() -> None:
 
 
 # --- SDOs ---
+
 
 def test_indicator_uses_pattern_as_value() -> None:
     raw = _base(
@@ -82,7 +85,9 @@ def test_vulnerability_uses_name() -> None:
 
 
 def test_location_uses_name_preferentially() -> None:
-    raw = _base("location", "location--original", name="Amsterdam", region="western-europe")
+    raw = _base(
+        "location", "location--original", name="Amsterdam", region="western-europe"
+    )
     result = process(raw)
     assert result.value == "Amsterdam"
 
@@ -106,13 +111,21 @@ def test_location_without_identifying_field_raises() -> None:
 
 
 def test_note_uses_abstract_over_content() -> None:
-    raw = _base("note", "note--original", abstract="TL;DR", content="Long content here", object_refs=["x--1"])
+    raw = _base(
+        "note",
+        "note--original",
+        abstract="TL;DR",
+        content="Long content here",
+        object_refs=["x--1"],
+    )
     result = process(raw)
     assert result.value == "TL;DR"
 
 
 def test_note_falls_back_to_content() -> None:
-    raw = _base("note", "note--original", content="Long content here", object_refs=["x--1"])
+    raw = _base(
+        "note", "note--original", content="Long content here", object_refs=["x--1"]
+    )
     result = process(raw)
     assert result.value == "Long content here"
 
@@ -124,7 +137,12 @@ def test_opinion_uses_opinion_field() -> None:
 
 
 def test_grouping_uses_context() -> None:
-    raw = _base("grouping", "grouping--original", context="suspicious-activity", object_refs=["x--1"])
+    raw = _base(
+        "grouping",
+        "grouping--original",
+        context="suspicious-activity",
+        object_refs=["x--1"],
+    )
     result = process(raw)
     assert result.value == "suspicious-activity"
 
@@ -150,19 +168,29 @@ def test_observed_data_uses_first_observed() -> None:
 
 # --- Unimplemented type ---
 
+
 def test_unimplemented_type_raises() -> None:
-    raw = _base("relationship", "relationship--x", relationship_type="uses", source_ref="x--1", target_ref="x--2")
+    raw = _base(
+        "relationship",
+        "relationship--x",
+        relationship_type="uses",
+        source_ref="x--1",
+        target_ref="x--2",
+    )
     with pytest.raises(NotImplementedError, match="relationship"):
         process(raw)
 
 
 def test_marking_definition_raises() -> None:
-    raw = _base("marking-definition", "marking-definition--x", definition_type="statement")
+    raw = _base(
+        "marking-definition", "marking-definition--x", definition_type="statement"
+    )
     with pytest.raises(NotImplementedError):
         process(raw)
 
 
 # --- other_stix_ids ---
+
 
 def test_other_stix_ids_contains_original_id() -> None:
     original_id = "ipv4-addr--some-original-uuid"

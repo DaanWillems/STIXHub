@@ -13,12 +13,20 @@ class ProcessingStatus(str, Enum):
 
 class BucketMode(str, Enum):
     append = "append"
+    merge = "merge"
+
+
+@dataclass
+class BucketConfig:
+    name: str
+    mode: BucketMode
 
 
 @dataclass
 class Bucket:
     name: str
     id: Optional[int] = None
+    mode: BucketMode = field(default=BucketMode.append)
 
 
 @dataclass
@@ -126,4 +134,3 @@ class TaxiiWriteStatusModel(BaseModel):
 class CollectionConfig:
     taxii_collection: TaxiiCollectionModel
     bucket_name: str
-    mode: BucketMode

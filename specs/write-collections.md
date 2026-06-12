@@ -6,25 +6,20 @@ Write collections expose a TAXII 2.1 compliant `POST /root/collections/{id}/obje
 
 ## Collection Configuration
 
-Collections are defined in code (config-as-code), not stored in the database. A new `CollectionConfig` dataclass wraps the TAXII response model with internal routing concerns:
+Collections are defined in code (config-as-code) in `platform_config.py`, not stored in the database. `CollectionConfig` wraps the TAXII response model with internal routing concerns:
 
 ```python
 @dataclass
 class CollectionConfig:
     taxii_collection: TaxiiCollectionModel
     bucket_name: str
-    mode: BucketMode
 ```
 
-`TaxiiCollectionModel` remains a pure TAXII response model. `bucket_name` and `mode` are platform-internal and never exposed to clients.
-
-## Bucket Mode
-
-A `BucketMode` enum is introduced. Only `append` mode is implemented in Phase 1. In append mode, multiple entities with the same platform ID can coexist in the same bucket.
+`TaxiiCollectionModel` remains a pure TAXII response model. `bucket_name` is platform-internal and never exposed to clients. `BucketMode` is a property of the bucket, not the collection — see [bucket-config.md](bucket-config.md).
 
 ## Startup Validation
 
-At startup, the platform checks that every `bucket_name` referenced in the collection config exists in the database. For each missing bucket:
+Bucket provisioning runs before collection validation. See [bucket-config.md](bucket-config.md) for the full startup sequence. After buckets are provisioned, the platform validates collection config: for each `CollectionConfig`, check the referenced `bucket_name` exists in the database. For each missing bucket:
 - Log an error
 - Exclude that collection from all API responses
 - Continue starting up (do not crash)

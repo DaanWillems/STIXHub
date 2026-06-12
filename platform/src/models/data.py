@@ -8,7 +8,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from enum import Enum
-from models.domain import ProcessingStatus
+from models.domain import BucketMode, ProcessingStatus
 
 
 class StixType(Enum):
@@ -82,6 +82,16 @@ class BucketModel(Base):
     __tablename__ = "bucket_model"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(nullable=False)
+    mode: Mapped[str] = mapped_column(
+        SAEnum(
+            BucketMode,
+            values_callable=lambda x: [e.value for e in x],
+            name="bucket_mode",
+        ),
+        nullable=False,
+        default=BucketMode.append.value,
+        server_default=BucketMode.append.value,
+    )
 
 
 class StixEntityModel(Base):
@@ -111,4 +121,6 @@ class StixEntityModel(Base):
         nullable=False,
     )
     object = mapped_column(MutableDict.as_mutable(JSONB))
-    other_stix_ids: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True, default=None)
+    other_stix_ids: Mapped[Optional[list[str]]] = mapped_column(
+        JSONB, nullable=True, default=None
+    )

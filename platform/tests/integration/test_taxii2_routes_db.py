@@ -68,7 +68,9 @@ async def test_returns_objects_from_correct_bucket(
 ) -> None:
     other_bucket = await repo.save(Bucket(name="other-bucket"))
     await repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--correct")])
-    await repo.add_entities(other_bucket.id, [make_entity(other_bucket.id, "indicator--wrong")])
+    await repo.add_entities(
+        other_bucket.id, [make_entity(other_bucket.id, "indicator--wrong")]
+    )
 
     response = await client.get(OBJECTS_URL)
 
@@ -118,7 +120,9 @@ async def test_cursor_advances_to_next_page(
     )
 
     first = await client.get(OBJECTS_URL, params={"limit": 3})
-    second = await client.get(OBJECTS_URL, params={"limit": 3, "next": first.json()["next"]})
+    second = await client.get(
+        OBJECTS_URL, params={"limit": 3, "next": first.json()["next"]}
+    )
 
     assert second.status_code == 200
     second_body = second.json()

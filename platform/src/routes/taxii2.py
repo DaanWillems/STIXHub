@@ -9,10 +9,11 @@ from fastapi.responses import JSONResponse
 
 from dependencies import get_bucket_repo
 from models.domain import (
+    Bucket,
+    BucketConfig,
     BucketMode,
     CollectionConfig,
     StixEntity,
-    TaxiiCollectionModel,
     TaxiiCollectionsRootResponseModel,
     TaxiiDiscoveryResponseModel,
     TaxiiErrorModel,
@@ -21,6 +22,7 @@ from models.domain import (
     TaxiiStatusRef,
     TaxiiWriteStatusModel,
 )
+from platform_config import BUCKET_CONFIGS, COLLECTION_CONFIGS
 from processors import stix as stix_processor
 from repositories.bucket import BucketRepository
 
@@ -32,28 +34,43 @@ type CollectionsRepository = dict[str, CollectionConfig]
 
 BucketRepoDep = Annotated[BucketRepository, Depends(get_bucket_repo)]
 
-_COLLECTION_CONFIGS: CollectionsRepository = {
-    "70a16fcf-8146-2da8-be66-6ca6fb7280af": CollectionConfig(
-        taxii_collection=TaxiiCollectionModel(
-            id="70a16fcf-8146-2da8-be66-6ca6fb7280af",
-            title="Example collection",
-            description="test",
-            can_read=True,
-            can_write=True,
-            media_types=[],
-        ),
-        bucket_name="Example collection",
-        mode=BucketMode.append,
-    ),
-}
+_active_configs: CollectionsRepository = dict(COLLECTION_CONFIGS)
 
-_active_configs: CollectionsRepository = dict(_COLLECTION_CONFIGS)
+
+async def provision_buckets(
+    repo: BucketRepository, configs: dict[str, BucketConfig] = BUCKET_CONFIGS
+) -> None:
+    for config in configs.values():
+        existing: Bucket | None = None
+        try:
+            existing = await repo.get(bucket_name=config.name)
+        except Exception:
+            pass
+        if existing is None:
+            await repo.save(Bucket(name=config.name, mode=config.mode))
+            logger.info(
+                "Provisioned bucket '%s' (mode=%s)", config.name, config.mode.value
+            )
+        else:
+            if existing.mode == BucketMode.append and config.mode == BucketMode.merge:
+                raise RuntimeError(
+                    f"Invalid mode transition for bucket '{config.name}': "
+                    f"cannot change from append to merge"
+                )
+            if existing.mode != config.mode:
+                await repo.update_mode(bucket_id=existing.id, mode=config.mode)
+                logger.info(
+                    "Updated bucket '%s' mode: %s -> %s",
+                    config.name,
+                    existing.mode.value,
+                    config.mode.value,
+                )
 
 
 async def validate_collections(repo: BucketRepository) -> None:
     global _active_configs
     valid: CollectionsRepository = {}
-    for cid, config in _COLLECTION_CONFIGS.items():
+    for cid, config in COLLECTION_CONFIGS.items():
         try:
             await repo.get(bucket_name=config.bucket_name)
             valid[cid] = config

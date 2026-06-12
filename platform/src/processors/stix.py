@@ -99,7 +99,9 @@ def process(raw: dict[str, Any]) -> ProcessedStixObject:
 
     processor = _PROCESSORS.get(obj_type)
     if processor is None:
-        raise NotImplementedError(f"No processor implemented for STIX type '{obj_type}'")
+        raise NotImplementedError(
+            f"No processor implemented for STIX type '{obj_type}'"
+        )
 
     value, contributing = processor(raw)
     platform_id = _uuid5(obj_type, contributing)
