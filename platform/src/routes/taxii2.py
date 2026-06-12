@@ -13,6 +13,7 @@ from models.domain import (
     BucketConfig,
     BucketMode,
     CollectionConfig,
+    TaxiiCollectionModel,
     TaxiiEnvelopeModel,
     StixEntity,
     TaxiiCollectionsRootResponseModel,
@@ -23,7 +24,6 @@ from models.domain import (
     TaxiiStatusRef,
     TaxiiWriteStatusModel,
 )
-from platform_config import BUCKET_CONFIGS, COLLECTION_CONFIGS
 from processors import stix as stix_processor
 from repositories.bucket import BucketRepository
 
@@ -35,13 +35,11 @@ type CollectionsRepository = dict[str, CollectionConfig]
 
 BucketRepoDep = Annotated[BucketRepository, Depends(get_bucket_repo)]
 
-_active_configs: CollectionsRepository = dict(COLLECTION_CONFIGS)
-
 
 async def provision_buckets(
-    repo: BucketRepository, configs: dict[str, BucketConfig] = BUCKET_CONFIGS
+    repo: BucketRepository, configs: list[BucketConfig]
 ) -> None:
-    for config in configs.values():
+    for config in configs:
         existing: Bucket | None = None
         try:
             existing = await repo.get(bucket_name=config.name)
@@ -68,25 +66,27 @@ async def provision_buckets(
                 )
 
 
-async def validate_collections(repo: BucketRepository) -> None:
-    global _active_configs
+async def validate_collections(
+    repo: BucketRepository, configs: list[CollectionConfig]
+) -> CollectionsRepository:
     valid: CollectionsRepository = {}
-    for cid, config in COLLECTION_CONFIGS.items():
+    for config in configs:
         try:
             await repo.get(bucket_name=config.bucket_name)
-            valid[cid] = config
+            valid[config.id] = config
         except Exception:
             logger.error(
                 "Collection '%s' ('%s') disabled: bucket '%s' not found",
-                cid,
-                config.taxii_collection.title,
+                config.id,
+                config.title,
                 config.bucket_name,
             )
-    _active_configs = valid
+    return valid
 
 
-def get_dummy_collections() -> CollectionsRepository:
-    return _active_configs
+def get_active_collections(request: Request) -> CollectionsRepository:
+    result: CollectionsRepository = request.app.state.active_collections
+    return result
 
 
 def _encode_cursor(offset: int) -> str:
@@ -123,10 +123,19 @@ def taxii_root() -> TaxiiRootResponseModel:
 
 @taxii2_router.get("/root/collections/")
 def taxii_collections_root(
-    configs: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_active_collections),
 ) -> TaxiiCollectionsRootResponseModel:
     return TaxiiCollectionsRootResponseModel(
-        collections=[c.taxii_collection for c in configs.values()]
+        collections=[
+            TaxiiCollectionModel(
+                id=c.id,
+                title=c.title,
+                description=c.description,
+                can_read=c.can_read,
+                can_write=c.can_write,
+            )
+            for c in configs.values()
+        ]
     )
 
 
@@ -145,7 +154,7 @@ async def get_collection_objects(
     repo: BucketRepoDep,
     limit: int = Query(default=20, ge=1, le=1000),
     next_cursor: str | None = Query(default=None, alias="next"),
-    configs: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_active_collections),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(
@@ -159,7 +168,7 @@ async def get_collection_objects(
 
     config = configs[collection_id]
 
-    if not config.taxii_collection.can_read:
+    if not config.can_read:
         return JSONResponse(
             status_code=403,
             content=TaxiiErrorModel(
@@ -213,7 +222,7 @@ async def add_collection_objects(
     collection_id: str,
     bundle: TaxiiEnvelopeModel,
     repo: BucketRepoDep,
-    configs: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_active_collections),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(
@@ -227,7 +236,7 @@ async def add_collection_objects(
 
     config = configs[collection_id]
 
-    if not config.taxii_collection.can_write:
+    if not config.can_write:
         return JSONResponse(
             status_code=403,
             content=TaxiiErrorModel(
