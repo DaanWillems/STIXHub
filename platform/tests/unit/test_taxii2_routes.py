@@ -1,21 +1,30 @@
+import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from dependencies import get_bucket_repo
-from models.domain import Bucket, CollectionConfig, StixEntity, TaxiiCollectionModel
+from dependencies import get_bucket_repo, get_current_user
+from models.domain import Bucket, CollectionConfig, StixEntity, TaxiiCollectionModel, User
 from repositories.bucket import BucketRepository, InMemoryBucketRepository
 from routes.taxii2 import get_dummy_collections, taxii2_router
 
 from fastapi import FastAPI
+
+_TEST_USER = User(
+    id=uuid.uuid4(),
+    email="test@example.com",
+    roles=["admin"],
+    created_at=datetime.now(timezone.utc),
+)
 
 
 def make_app(repo: BucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
     app.dependency_overrides[get_bucket_repo] = lambda: repo
+    app.dependency_overrides[get_current_user] = lambda: _TEST_USER
     return app
 
 

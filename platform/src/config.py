@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     DATABASE_USE_NULLPOOL: bool = False
     DATABASE_ENGINE_ECHO: bool = True
     BUCKET_REPO_BACKEND: Literal["memory", "database"] = "database"
+    ADMIN_API_KEY: str
 
 
 settings = Settings()

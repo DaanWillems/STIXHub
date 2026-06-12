@@ -2,6 +2,7 @@ from models.domain import (
     BucketConfig,
     BucketMode,
     CollectionConfig,
+    RoleConfig,
     TaxiiCollectionModel,
 )
 
@@ -22,5 +23,23 @@ COLLECTION_CONFIGS: dict[str, CollectionConfig] = {
             media_types=[],
         ),
         bucket_name="Example collection",
+    ),
+}
+
+ROLE_CONFIGS: dict[str, RoleConfig] = {
+    "admin": RoleConfig(
+        name="admin",
+        can_read=["Example collection"],
+        can_write=["Example collection"],
+    ),
+    "reader": RoleConfig(
+        name="reader",
+        can_read=["Example collection"],
+        can_write=[],
+    ),
+    "writer": RoleConfig(
+        name="writer",
+        can_read=[],
+        can_write=["Example collection"],
     ),
 }

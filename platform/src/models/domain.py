@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
@@ -139,3 +141,38 @@ class TaxiiWriteStatusModel(BaseModel):
 class CollectionConfig:
     taxii_collection: TaxiiCollectionModel
     bucket_name: str
+
+
+@dataclass
+class RoleConfig:
+    name: str
+    can_read: list[str]
+    can_write: list[str]
+
+
+@dataclass
+class User:
+    id: UUID
+    email: str
+    roles: list[str]
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    email: str
+    roles: list[str]
+
+
+class UserPatch(BaseModel):
+    roles: list[str]
+
+
+class UserResponse(BaseModel):
+    id: UUID
+    email: str
+    roles: list[str]
+    created_at: datetime
+
+
+class UserCreateResponse(UserResponse):
+    api_key: str
