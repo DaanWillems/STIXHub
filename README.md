@@ -5,31 +5,26 @@ STIXHub is a platform for collecting and distributing Cyber Threat Intelligence 
 The platform also features a system for filtering and mutating CTI, to automate and improve data quality. 
 
 # Features
-STIXHub is currently not production ready, but does already support a number of useful features. \
+STIXHub is currently not production ready, but does already support a number of useful features: \
+\
 :white_check_mark: TAXII 2.1 compatible endpoints \
 :white_check_mark: Writing to collections \
 :white_check_mark: Reading from collections \
 :white_check_mark: Storage system driven by the bucket design \
 :white_check_mark: Append only buckets
 
-## Development roadmap
-Phase 1:
-- Read and write collections
-- Only single node deployment
-- RBAC and user management
-- Config management
-- Bucket merge mode
+The following features are planned:\
+\
+:heavy_exclamation_mark: Bucket merge mode for deduplication
+:heavy_exclamation_mark: Collector service to read external TAXII 2.1 endpoints
+:heavy_exclamation_mark: Collector service to read external MISP endpoints
+:heavy_exclamation_mark: Pipelines to move and transform data between buckets
+:heavy_exclamation_mark: Multi node deployments to enable horizontal scaling
 
-Phase 2:
-- Collector service
-- Multi node deployment
-
-Phase 3:
-- Single node pipelines
-
-Phase 4:
-- Multi node pipelines
-
+Possible features: \
+\
+:question: External buckets to outsource entity processing\
+:question: CSV exporter for easy integration with legacy systems
 # Getting started
 ## Docker deploy
 ## Development environment
