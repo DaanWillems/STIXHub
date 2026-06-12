@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.data import BucketModel, StixEntityModel
-from models.domain import Bucket, ProcessingStatus, StixEntity
+from models.domain import Bucket, BucketMode, ProcessingStatus, StixEntity
 
 
 def _bucket_from_model(model: BucketModel) -> Bucket:
-    return Bucket(id=model.id, name=model.name)
+    return Bucket(id=model.id, name=model.name, mode=BucketMode(model.mode))
 
 
 def _entity_from_model(model: StixEntityModel) -> StixEntity:
@@ -24,6 +24,7 @@ def _entity_from_model(model: StixEntityModel) -> StixEntity:
         platform_created=model.platform_created,
         object=model.object,
         status=ProcessingStatus(model.status),
+        other_stix_ids=model.other_stix_ids or [],
     )
 
 
@@ -50,6 +51,9 @@ class BucketRepository(ABC):
 
     @abstractmethod
     async def delete(self, bucket_id: int) -> None: ...
+
+    @abstractmethod
+    async def update_mode(self, bucket_id: int, mode: BucketMode) -> None: ...
 
     @abstractmethod
     async def acquire_entities(self, bucket_id: int, n: int) -> list[StixEntity]: ...
@@ -97,7 +101,9 @@ class InMemoryBucketRepository(BucketRepository):
         if entities is None:
             return []
         start = offset or 0
-        return entities[start : start + limit] if limit is not None else entities[start:]
+        return (
+            entities[start : start + limit] if limit is not None else entities[start:]
+        )
 
     async def add_entities(
         self, bucket_id: int, entities_in: list[StixEntity]
@@ -108,6 +114,10 @@ class InMemoryBucketRepository(BucketRepository):
 
     async def delete(self, bucket_id: int) -> None:
         del self._store[bucket_id]
+
+    async def update_mode(self, bucket_id: int, mode: BucketMode) -> None:
+        bucket, entities = self._store[bucket_id]
+        bucket.mode = mode
 
     async def acquire_entities(self, bucket_id: int, n: int) -> list[StixEntity]:
         entities = self._store[bucket_id][1]
@@ -126,7 +136,7 @@ class DatabaseBucketRepository(BucketRepository):
         self._session = session
 
     async def save(self, bucket_in: Bucket) -> Bucket:
-        model = BucketModel(name=bucket_in.name)
+        model = BucketModel(name=bucket_in.name, mode=bucket_in.mode.value)
         self._session.add(model)
         await self._session.flush()
         await self._session.refresh(model)
@@ -191,6 +201,7 @@ class DatabaseBucketRepository(BucketRepository):
                 value=entity.value,
                 platform_modified=entity.platform_modified,
                 object=entity.object,
+                other_stix_ids=entity.other_stix_ids,
             )
             self._session.add(model)
         await self._session.flush()
@@ -203,6 +214,14 @@ class DatabaseBucketRepository(BucketRepository):
         await self._session.execute(
             delete(BucketModel).where(BucketModel.id == bucket_id)
         )
+
+    async def update_mode(self, bucket_id: int, mode: BucketMode) -> None:
+        await self._session.execute(
+            update(BucketModel)
+            .where(BucketModel.id == bucket_id)
+            .values(mode=mode.value)
+        )
+        await self._session.flush()
 
     async def acquire_entities(self, bucket_id: int, n: int) -> list[StixEntity]:
         result = await self._session.execute(

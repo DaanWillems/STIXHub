@@ -1,39 +1,92 @@
 import base64
-from typing import Annotated
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from dependencies import get_bucket_repo
 from models.domain import (
-    TaxiiCollectionModel,
+    Bucket,
+    BucketConfig,
+    BucketMode,
+    CollectionConfig,
+    TaxiiEnvelopeModel,
+    StixEntity,
     TaxiiCollectionsRootResponseModel,
     TaxiiDiscoveryResponseModel,
     TaxiiErrorModel,
     TaxiiObjectResponseModel,
     TaxiiRootResponseModel,
+    TaxiiStatusRef,
+    TaxiiWriteStatusModel,
 )
+from platform_config import BUCKET_CONFIGS, COLLECTION_CONFIGS
+from processors import stix as stix_processor
 from repositories.bucket import BucketRepository
 
+logger = logging.getLogger(__name__)
 
 taxii2_router = APIRouter(prefix="/taxii2", tags=["TAXII 2.1"])
 
-type CollectionsRepository = dict[str, TaxiiCollectionModel]
+type CollectionsRepository = dict[str, CollectionConfig]
 
 BucketRepoDep = Annotated[BucketRepository, Depends(get_bucket_repo)]
 
+_active_configs: CollectionsRepository = dict(COLLECTION_CONFIGS)
+
+
+async def provision_buckets(
+    repo: BucketRepository, configs: dict[str, BucketConfig] = BUCKET_CONFIGS
+) -> None:
+    for config in configs.values():
+        existing: Bucket | None = None
+        try:
+            existing = await repo.get(bucket_name=config.name)
+        except Exception:
+            pass
+        if existing is None:
+            await repo.save(Bucket(name=config.name, mode=config.mode))
+            logger.info(
+                "Provisioned bucket '%s' (mode=%s)", config.name, config.mode.value
+            )
+        else:
+            if existing.mode == BucketMode.append and config.mode == BucketMode.merge:
+                raise RuntimeError(
+                    f"Invalid mode transition for bucket '{config.name}': "
+                    f"cannot change from append to merge"
+                )
+            if existing.mode != config.mode:
+                await repo.update_mode(bucket_id=existing.id, mode=config.mode)
+                logger.info(
+                    "Updated bucket '%s' mode: %s -> %s",
+                    config.name,
+                    existing.mode.value,
+                    config.mode.value,
+                )
+
+
+async def validate_collections(repo: BucketRepository) -> None:
+    global _active_configs
+    valid: CollectionsRepository = {}
+    for cid, config in COLLECTION_CONFIGS.items():
+        try:
+            await repo.get(bucket_name=config.bucket_name)
+            valid[cid] = config
+        except Exception:
+            logger.error(
+                "Collection '%s' ('%s') disabled: bucket '%s' not found",
+                cid,
+                config.taxii_collection.title,
+                config.bucket_name,
+            )
+    _active_configs = valid
+
 
 def get_dummy_collections() -> CollectionsRepository:
-    return {
-        "70a16fcf-8146-2da8-be66-6ca6fb7280af": TaxiiCollectionModel(
-            id="70a16fcf-8146-2da8-be66-6ca6fb7280af",
-            title="Example collection",
-            description="test",
-            can_read=True,
-            can_write=True,
-            media_types=[],
-        ),
-    }
+    return _active_configs
 
 
 def _encode_cursor(offset: int) -> str:
@@ -42,6 +95,12 @@ def _encode_cursor(offset: int) -> str:
 
 def _decode_cursor(cursor: str) -> int:
     return int(base64.b64decode(cursor.encode()).decode())
+
+
+def _validate_stix_object(obj: dict[str, Any]) -> None:
+    for field_name in ("id", "type", "spec_version"):
+        if not obj.get(field_name):
+            raise ValueError(f"Missing required field: '{field_name}'")
 
 
 @taxii2_router.get("/")
@@ -64,10 +123,10 @@ def taxii_root() -> TaxiiRootResponseModel:
 
 @taxii2_router.get("/root/collections/")
 def taxii_collections_root(
-    dummy_collections: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_dummy_collections),
 ) -> TaxiiCollectionsRootResponseModel:
     return TaxiiCollectionsRootResponseModel(
-        collections=list(dummy_collections.values())
+        collections=[c.taxii_collection for c in configs.values()]
     )
 
 
@@ -86,9 +145,9 @@ async def get_collection_objects(
     repo: BucketRepoDep,
     limit: int = Query(default=20, ge=1, le=1000),
     next_cursor: str | None = Query(default=None, alias="next"),
-    dummy_collections: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_dummy_collections),
 ) -> JSONResponse:
-    if collection_id not in dummy_collections:
+    if collection_id not in configs:
         return JSONResponse(
             status_code=404,
             content=TaxiiErrorModel(
@@ -98,9 +157,9 @@ async def get_collection_objects(
             ).model_dump(exclude_none=True),
         )
 
-    collection = dummy_collections[collection_id]
+    config = configs[collection_id]
 
-    if not collection.can_read:
+    if not config.taxii_collection.can_read:
         return JSONResponse(
             status_code=403,
             content=TaxiiErrorModel(
@@ -125,7 +184,7 @@ async def get_collection_objects(
             )
 
     entities = await repo.get_entities(
-        bucket_name=collection.title, limit=limit + 1, offset=offset
+        bucket_name=config.bucket_name, limit=limit + 1, offset=offset
     )
 
     more = len(entities) > limit
@@ -137,5 +196,103 @@ async def get_collection_objects(
             more=more,
             next=next_out,
             objects=[e.object for e in page],
+        ).model_dump(exclude_none=True),
+    )
+
+
+@taxii2_router.post(
+    "/root/collections/{collection_id}/objects/",
+    response_model=None,
+    responses={
+        202: {"model": TaxiiWriteStatusModel},
+        403: {"model": TaxiiErrorModel},
+        404: {"model": TaxiiErrorModel},
+    },
+)
+async def add_collection_objects(
+    collection_id: str,
+    bundle: TaxiiEnvelopeModel,
+    repo: BucketRepoDep,
+    configs: CollectionsRepository = Depends(get_dummy_collections),
+) -> JSONResponse:
+    if collection_id not in configs:
+        return JSONResponse(
+            status_code=404,
+            content=TaxiiErrorModel(
+                title="Collection Not Found",
+                description=f"No collection with id '{collection_id}' exists.",
+                http_status="404",
+            ).model_dump(exclude_none=True),
+        )
+
+    config = configs[collection_id]
+
+    if not config.taxii_collection.can_write:
+        return JSONResponse(
+            status_code=403,
+            content=TaxiiErrorModel(
+                title="Forbidden",
+                description=f"Collection '{collection_id}' does not permit writing.",
+                http_status="403",
+            ).model_dump(exclude_none=True),
+        )
+
+    raw_objects: list[dict[str, Any]] = bundle.objects
+
+    now = datetime.now(timezone.utc)
+    bucket = await repo.get(bucket_name=config.bucket_name)
+
+    successes: list[TaxiiStatusRef] = []
+    failures: list[TaxiiStatusRef] = []
+    entities_to_add: list[StixEntity] = []
+
+    for raw_obj in raw_objects:
+        obj_id: str = raw_obj.get("id", "unknown")
+        try:
+            _validate_stix_object(raw_obj)
+            processed = stix_processor.process(raw_obj)
+            entities_to_add.append(
+                StixEntity(
+                    id=0,
+                    bucket_id=bucket.id,
+                    stix_id=processed.platform_id,
+                    type=raw_obj["type"],
+                    spec_version=raw_obj["spec_version"],
+                    creator=collection_id,
+                    value=processed.value,
+                    platform_modified=now,
+                    platform_created=now,
+                    other_stix_ids=processed.other_stix_ids,
+                    object=processed.object,
+                )
+            )
+            successes.append(
+                TaxiiStatusRef(
+                    id=processed.platform_id,
+                    version=raw_obj.get("modified"),
+                )
+            )
+        except (NotImplementedError, ValueError, KeyError) as exc:
+            failures.append(TaxiiStatusRef(id=obj_id, message=str(exc)))
+
+    if entities_to_add:
+        await repo.add_entities(bucket.id, entities_to_add)
+
+    status_str: Literal["complete", "complete_with_errors"] = (
+        "complete_with_errors" if failures else "complete"
+    )
+
+    return JSONResponse(
+        status_code=202,
+        content=TaxiiWriteStatusModel(
+            id=str(uuid.uuid4()),
+            status=status_str,
+            request_timestamp=now.isoformat(),
+            total_count=len(raw_objects),
+            success_count=len(successes),
+            failure_count=len(failures),
+            pending_count=0,
+            successes=successes,
+            failures=failures,
         ).model_dump(exclude_none=True),
     )

@@ -54,7 +54,8 @@ class Database:
     @asynccontextmanager
     async def get_session(self) -> AsyncGenerator[AsyncSession]:
         async with self._session_factory() as session:
-            yield session
+            async with session.begin():
+                yield session
 
     async def create_tables(self) -> None:
         async with self._engine.begin() as conn:

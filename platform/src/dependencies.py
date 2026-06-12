@@ -2,7 +2,11 @@ from collections.abc import AsyncGenerator
 
 from config import settings
 from database import db
-from repositories.bucket import BucketRepository, DatabaseBucketRepository, InMemoryBucketRepository
+from repositories.bucket import (
+    BucketRepository,
+    DatabaseBucketRepository,
+    InMemoryBucketRepository,
+)
 
 _in_memory_repo = InMemoryBucketRepository()
 

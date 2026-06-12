@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from models.domain import Bucket, ProcessingStatus, StixEntity
 from repositories.bucket import DatabaseBucketRepository
@@ -191,6 +192,24 @@ async def test_acquire_entities_skips_already_processing(
     second_ids = {e.stix_id for e in second_batch}
     assert first_ids.isdisjoint(second_ids)
     assert len(second_batch) == 2
+
+
+async def test_data_persists_between_sessions(engine) -> None:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as session:
+        async with session.begin():
+            bucket = await DatabaseBucketRepository(session).save(
+                Bucket(name="cross-session-test")
+            )
+            bucket_id = bucket.id
+
+    async with session_factory() as session:
+        async with session.begin():
+            repo = DatabaseBucketRepository(session)
+            retrieved = await repo.get(bucket_id=bucket_id)
+            assert retrieved.name == "cross-session-test"
+            await repo.delete(bucket_id)
 
 
 async def test_acquire_entities_returns_empty_when_none_pending(
