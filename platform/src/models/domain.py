@@ -110,6 +110,11 @@ class TaxiiObjectResponseModel(BaseModel):
     objects: list[dict[str, Any]]
 
 
+class TaxiiEnvelopeModel(BaseModel):
+    model_config = ConfigDict(title="TaxiiEnvelope")
+    objects: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class TaxiiStatusRef(BaseModel):
     id: str
     version: str | None = None

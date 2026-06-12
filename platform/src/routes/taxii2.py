@@ -13,6 +13,7 @@ from models.domain import (
     BucketConfig,
     BucketMode,
     CollectionConfig,
+    TaxiiEnvelopeModel,
     StixEntity,
     TaxiiCollectionsRootResponseModel,
     TaxiiDiscoveryResponseModel,
@@ -210,7 +211,7 @@ async def get_collection_objects(
 )
 async def add_collection_objects(
     collection_id: str,
-    request: Request,
+    bundle: TaxiiEnvelopeModel,
     repo: BucketRepoDep,
     configs: CollectionsRepository = Depends(get_dummy_collections),
 ) -> JSONResponse:
@@ -236,8 +237,7 @@ async def add_collection_objects(
             ).model_dump(exclude_none=True),
         )
 
-    body = await request.json()
-    raw_objects: list[dict[str, Any]] = body.get("objects", [])
+    raw_objects: list[dict[str, Any]] = bundle.objects
 
     now = datetime.now(timezone.utc)
     bucket = await repo.get(bucket_name=config.bucket_name)

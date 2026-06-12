@@ -214,8 +214,8 @@ async def writable_repo() -> AsyncGenerator[InMemoryBucketRepository, None]:
     yield await _repo_with_bucket("Example collection", n_entities=0)
 
 
-def _bundle(*objects: dict) -> dict:  # type: ignore[type-arg]
-    return {"type": "bundle", "id": "bundle--test", "objects": list(objects)}
+def _envelope(*objects: dict) -> dict:  # type: ignore[type-arg]
+    return {"objects": list(objects)}
 
 
 def _ipv4(value: str = "198.51.100.1") -> dict:  # type: ignore[type-arg]
@@ -234,7 +234,7 @@ async def test_write_unknown_collection_returns_404(
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/taxii2/root/collections/no-such-id/objects/", json=_bundle(_ipv4())
+            "/taxii2/root/collections/no-such-id/objects/", json=_envelope(_ipv4())
         )
 
     assert response.status_code == 404
@@ -268,7 +268,7 @@ async def test_write_non_writable_collection_returns_403(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            f"/taxii2/root/collections/{readonly_id}/objects/", json=_bundle(_ipv4())
+            f"/taxii2/root/collections/{readonly_id}/objects/", json=_envelope(_ipv4())
         )
 
     assert response.status_code == 403
@@ -281,7 +281,7 @@ async def test_write_valid_object_returns_202_complete(
     async with AsyncClient(
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
-        response = await client.post(OBJECTS_URL, json=_bundle(_ipv4()))
+        response = await client.post(OBJECTS_URL, json=_envelope(_ipv4()))
 
     assert response.status_code == 202
     body = response.json()
@@ -298,7 +298,7 @@ async def test_write_stores_object_in_bucket(
     async with AsyncClient(
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
-        await client.post(OBJECTS_URL, json=_bundle(_ipv4("10.0.0.1")))
+        await client.post(OBJECTS_URL, json=_envelope(_ipv4("10.0.0.1")))
 
     entities = await writable_repo.get_entities(bucket_name="Example collection")
     assert len(entities) == 1
@@ -313,8 +313,8 @@ async def test_write_generates_deterministic_platform_id(
     async with AsyncClient(
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
-        await client.post(OBJECTS_URL, json=_bundle(_ipv4("10.0.0.1")))
-        await client.post(OBJECTS_URL, json=_bundle(_ipv4("10.0.0.1")))
+        await client.post(OBJECTS_URL, json=_envelope(_ipv4("10.0.0.1")))
+        await client.post(OBJECTS_URL, json=_envelope(_ipv4("10.0.0.1")))
 
     entities = await writable_repo.get_entities(bucket_name="Example collection")
     assert entities[0].stix_id == entities[1].stix_id
@@ -332,7 +332,7 @@ async def test_write_missing_required_field_is_failure(
     async with AsyncClient(
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
-        response = await client.post(OBJECTS_URL, json=_bundle(bad_obj))
+        response = await client.post(OBJECTS_URL, json=_envelope(bad_obj))
 
     assert response.status_code == 202
     body = response.json()
@@ -356,7 +356,7 @@ async def test_write_unimplemented_type_is_failure(
     async with AsyncClient(
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
-        response = await client.post(OBJECTS_URL, json=_bundle(sro))
+        response = await client.post(OBJECTS_URL, json=_envelope(sro))
 
     assert response.status_code == 202
     body = response.json()
@@ -376,7 +376,7 @@ async def test_write_partial_success(writable_repo: InMemoryBucketRepository) ->
         transport=ASGITransport(app=make_app(writable_repo)), base_url="http://test"
     ) as client:
         response = await client.post(
-            OBJECTS_URL, json=_bundle(_ipv4("5.6.7.8"), bad_obj)
+            OBJECTS_URL, json=_envelope(_ipv4("5.6.7.8"), bad_obj)
         )
 
     assert response.status_code == 202
