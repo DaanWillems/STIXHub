@@ -95,7 +95,7 @@ The difference between replacing and merging is that the former completely repla
 ### RBAC
 There is a simple role based access control system. The platform has users, who can have roles. Roles give access to read or write collections. This means that RBAC is not implemented on an entity specific level. This is a conscious choice to simplify the RBAC model. An RBAC model which is easy to understand and to reason about decreases the chance of making mistakes in configuring it. In turn preventing accidental data leaks. If you want to share an entity with a user, you'll have to write it to a collection they can access.
 
-```Mermaid
+```mermaid
   graph TD;
   User-->Role;
   Role--"Grants access to"-->Bucket
@@ -103,7 +103,7 @@ There is a simple role based access control system. The platform has users, who 
 ```
 
 An example configuration may be as follows:
-```Mermaid
+```mermaid
   graph TD;
   User-->Role-a;
 

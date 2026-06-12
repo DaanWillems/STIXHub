@@ -5,9 +5,8 @@
             "name": "STIXHub: uvicorn",
             "type": "debugpy",
             "request": "launch",
-            "module": "uvicorn",
-            "args": ["src.__main__:app", "--reload"],
-            "cwd": "${workspaceFolder}/platform/src",
+            "module": "src",
+            "cwd": "${workspaceFolder}/platform/",
             "env": {
                 "STIX_HUB_DATABASE_HOST": "localhost",
                 "STIX_HUB_DATABASE_PORT": "5432",
@@ -17,28 +16,7 @@
                 "STIX_HUB_DATABASE_USE_NULLPOOL": "false",
                 "STIX_HUB_DATABASE_ENGINE_ECHO": "true",
                 "STIX_HUB_BUCKET_REPO_BACKEND": "database"
-            },
-            "jinja": true,
-            "justMyCode": false
-        },
-        {
-            "name": "STIXHub: pytest",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "pytest",
-            "args": ["tests/", "-v"],
-            "cwd": "${workspaceFolder}/platform",
-            "env": {
-                "STIX_HUB_DATABASE_HOST": "localhost",
-                "STIX_HUB_DATABASE_PORT": "5432",
-                "STIX_HUB_DATABASE_NAME": "app",
-                "STIX_HUB_DATABASE_USER": "postgres",
-                "STIX_HUB_DATABASE_PASS": "postgres",
-                "STIX_HUB_DATABASE_USE_NULLPOOL": "true",
-                "STIX_HUB_DATABASE_ENGINE_ECHO": "false",
-                "STIX_HUB_BUCKET_REPO_BACKEND": "memory"
-            },
-            "justMyCode": false
+            }
         }
     ]
 }
