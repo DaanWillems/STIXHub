@@ -1,26 +1,42 @@
+import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from dependencies import get_bucket_repo
-from models.domain import Bucket, CollectionConfig, StixEntity
+from dependencies import get_bucket_repo, get_current_user
+from models.domain import (
+    Bucket,
+    CollectionConfig,
+    StixEntity,
+    TaxiiCollectionModel,
+    User,
+)
 from repositories.bucket import BucketRepository, InMemoryBucketRepository
 from routes.taxii2 import get_active_collections, taxii2_router
 
 from fastapi import FastAPI
+
+_TEST_USER = User(
+    id=uuid.uuid4(),
+    email="test@example.com",
+    roles=["admin"],
+    created_at=datetime.now(timezone.utc),
+)
 
 
 COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
 _DEFAULT_COLLECTION = CollectionConfig(
-    id=COLLECTION_ID,
-    title="Example collection",
-    description="test",
-    can_read=True,
-    can_write=True,
+    taxii_collection=TaxiiCollectionModel(
+        id=COLLECTION_ID,
+        title="Example collection",
+        description="test",
+        can_read=True,
+        can_write=True,
+    ),
     bucket_name="Example collection",
 )
 
@@ -29,6 +45,7 @@ def make_app(repo: BucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
     app.dependency_overrides[get_bucket_repo] = lambda: repo
+    app.dependency_overrides[get_current_user] = lambda: _TEST_USER
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
     return app
 
@@ -92,11 +109,13 @@ async def test_unreadable_collection_returns_403(
     def get_unreadable_collections() -> dict:  # type: ignore[type-arg]
         return {
             unreadable_id: CollectionConfig(
-                id=unreadable_id,
-                title="Example collection",
-                description="test",
-                can_read=False,
-                can_write=True,
+                taxii_collection=TaxiiCollectionModel(
+                    id=unreadable_id,
+                    title="Example collection",
+                    description="test",
+                    can_read=False,
+                    can_write=True,
+                ),
                 bucket_name="Example collection",
             )
         }
@@ -256,11 +275,13 @@ async def test_write_non_writable_collection_returns_403(
     def get_readonly() -> dict:  # type: ignore[type-arg]
         return {
             readonly_id: CollectionConfig(
-                id=readonly_id,
-                title="Example collection",
-                description="test",
-                can_read=True,
-                can_write=False,
+                taxii_collection=TaxiiCollectionModel(
+                    id=readonly_id,
+                    title="Example collection",
+                    description="test",
+                    can_read=True,
+                    can_write=False,
+                ),
                 bucket_name="Example collection",
             )
         }

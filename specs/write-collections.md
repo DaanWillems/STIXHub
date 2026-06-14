@@ -2,10 +2,41 @@
 
 ## Overview
 
-Write collections expose a TAXII 2.1 compliant `POST /root/collections/{id}/objects/` endpoint. Submitted STIX objects are validated, re-identified with a platform-generated deterministic ID, and written to a configured bucket in append mode.
+Write collections expose a TAXII 2.1 compliant write endpoint. Submitted STIX bundles are validated, each object is re-identified with a platform-generated deterministic ID, and valid objects are written to the collection's configured bucket.
+
+## Goals
+
+- Callers can push STIX 2.1 bundles to a collection via a standard TAXII 2.1 write endpoint.
+- Each ingested object gets a stable, deterministic platform ID derived from its content, independent of the source-assigned STIX ID.
+- Partial success is supported — valid objects in a bundle are written even if others fail.
+- Collections are wired to buckets via config, with no runtime API for managing the mapping.
+
+## Non-Goals
+
+- Async status polling — the write response is synchronous.
+- Full STIX 2.1 schema validation — only minimal field presence is checked in Phase 1.
+- Write endpoints for all bucket modes — write collections only target append-mode buckets.
 
 ## Collection Configuration
 
+<<<<<<< HEAD
+Collections are declared in `platform_config.yaml` and mapped to buckets by name. Each collection exposes one bucket; a bucket may back multiple collections.
+
+```yaml
+collections:
+  - id: 70a16fcf-d221-4f00-b5b0-ea3b6f7c4ef5
+    title: Raw Intel Feed
+    description: Incoming threat intelligence from external sources
+    bucket: raw-intel
+    can_read: true
+    can_write: true
+```
+
+Rules:
+- `id` must be a valid UUID and unique across all declared collections.
+- `bucket` must match a declared bucket name; see [bucket-config.md](bucket-config.md) for bucket provisioning.
+- A collection whose referenced bucket is not found at startup is excluded from all API responses.
+=======
 Collections are defined in an external YAML file, not stored in the database and not hardcoded in Python. See [platform-config.md](platform-config.md) for the file format and loading mechanism.
 
 `CollectionConfig` is a pydantic `BaseModel` that holds TAXII fields plus the internal `bucket_name` routing field:
@@ -28,51 +59,42 @@ Bucket provisioning runs before collection validation. See [bucket-config.md](bu
 - Log an error
 - Exclude that collection from all API responses
 - Continue starting up (do not crash)
+>>>>>>> main
 
 ## Write Endpoint
 
 **`POST /taxii2/root/collections/{collection_id}/objects/`**
 
-Request body: a STIX 2.1 bundle (`application/stix+json;version=2.1`).
+Accepts a STIX 2.1 bundle (`application/stix+json;version=2.1`). Each object in the bundle is processed independently. The endpoint responds synchronously with `202 Accepted` and a TAXII status object summarising the result. No async polling endpoint is provided in Phase 1.
 
-Response: `202 Accepted` with an inline synchronous TAXII status object. No async polling endpoint (`GET /status/{id}`) is implemented in Phase 1.
+The status response includes a success count, failure count, and per-object success or failure references.
 
-### Partial Success
+## Object Validation
 
-Each object in the bundle is processed independently. Valid objects are written to the bucket. Invalid objects are reported as failures. The status response includes `success_count`, `failure_count`, and per-object success/failure references.
+Each submitted object is checked for minimal field presence before processing:
+- `id` is present and non-empty.
+- `type` is present and non-empty.
+- `spec_version` is present and non-empty.
 
-## Validation
+Objects that fail this check are recorded as failures in the status response. Full STIX 2.1 schema validation is out of scope for Phase 1.
 
-Minimal validation is applied to each object:
-- `id` is present and non-empty
-- `type` is present and non-empty
-- `spec_version` is present and non-empty
+## Deterministic IDs
 
-Full STIX 2.1 schema validation is out of scope for Phase 1.
+Every valid object is assigned a platform-generated deterministic ID before being written to the bucket. This ID is derived from the object's content using UUID v5, ensuring the same logical object always maps to the same platform ID regardless of its source-assigned STIX ID.
 
-## STIX Processors
+The contributing properties used to derive the ID differ by object type:
+- **SCOs** — contributing properties as defined in the STIX 2.1 specification.
+- **SDOs** — a type-specific "value" field (e.g. the pattern for `indicator`, the name for `malware`).
 
-Each STIX type has a processor responsible for:
-1. Extracting the `value` — a type-specific searchable string (e.g. the IP address for `ipv4-addr`, the pattern for `indicator`)
-2. Generating a deterministic platform ID via UUID v5
+The original source STIX ID is preserved alongside the platform ID and is never discarded.
 
-Processors are implemented for all SDOs and SCOs. Receiving an object whose type has no processor raises an unimplemented error; that object is reported as a failure.
+Objects whose type is not yet supported are reported as failures.
 
-### Deterministic ID Generation
+## Error Cases
 
-Platform IDs are generated as UUID v5 using:
-- **SCOs**: contributing properties as defined in the STIX 2.1 specification
-- **SDOs**: the `value` field extracted by the processor (e.g. `pattern` for `indicator`, `name` for `malware`)
-
-The STIX 2.1 namespace UUID (`00abedb4-aa42-466c-9c01-fed23315a9b7`) is used for all UUID v5 generation.
-
-## Database Changes
-
-### `StixEntityModel`
-
-| Field | Change | Notes |
-|---|---|---|
-| `stix_id` | Existing — repurposed | Stores the platform-generated deterministic ID |
-| `other_stix_ids` | New — JSONB array | Stores original STIX IDs from the source object |
-| `value` | Existing | Populated by the STIX processor |
-| `creator` | Existing | Set to the collection ID that wrote the object |
+| Condition                              | Outcome                              |
+|----------------------------------------|--------------------------------------|
+| Collection not found                   | 404 Not Found                        |
+| Invalid or missing content-type header | 415 Unsupported Media Type           |
+| Object missing required fields         | Recorded as failure in status object |
+| Unsupported STIX type                  | Recorded as failure in status object |

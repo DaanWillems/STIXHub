@@ -5,29 +5,39 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from dependencies import get_bucket_repo
-from models.domain import Bucket, CollectionConfig, StixEntity
+from config import settings
+from dependencies import get_bucket_repo, get_user_repo
+from models.domain import Bucket, StixEntity, TaxiiCollectionModel
+from models.domain import CollectionConfig
 from repositories.bucket import DatabaseBucketRepository
+from repositories.user import DatabaseUserRepository
 from routes.taxii2 import taxii2_router
+from routes.users import users_router
 
 
 COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
 _DEFAULT_COLLECTION = CollectionConfig(
-    id=COLLECTION_ID,
-    title="Example collection",
-    description="test",
-    can_read=True,
-    can_write=True,
+    taxii_collection=TaxiiCollectionModel(
+        id=COLLECTION_ID,
+        title="Example collection",
+        description="test",
+        can_read=True,
+        can_write=True,
+    ),
     bucket_name="Example collection",
 )
 
 
-def make_app(repo: DatabaseBucketRepository) -> FastAPI:
+def make_app(
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository
+) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
-    app.dependency_overrides[get_bucket_repo] = lambda: repo
+    app.include_router(users_router)
+    app.dependency_overrides[get_bucket_repo] = lambda: bucket_repo
+    app.dependency_overrides[get_user_repo] = lambda: user_repo
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
     return app
 
@@ -49,14 +59,36 @@ def make_entity(bucket_id: int, stix_id: str = "indicator--abc123") -> StixEntit
 
 
 @pytest.fixture
-async def bucket(repo: DatabaseBucketRepository) -> Bucket:
-    return await repo.save(Bucket(name="Example collection"))
+async def api_key(
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository
+) -> str:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {settings.ADMIN_API_KEY}"},
+    ) as admin_client:
+        response = await admin_client.post(
+            "/users/", json={"email": "test@example.com", "roles": ["admin"]}
+        )
+    assert response.status_code == 201
+    return str(response.json()["api_key"])
 
 
 @pytest.fixture
-async def client(repo: DatabaseBucketRepository) -> AsyncGenerator[AsyncClient, None]:
+async def bucket(bucket_repo: DatabaseBucketRepository) -> Bucket:
+    return await bucket_repo.save(Bucket(name="Example collection"))
+
+
+@pytest.fixture
+async def client(
+    bucket_repo: DatabaseBucketRepository,
+    user_repo: DatabaseUserRepository,
+    api_key: str,
+) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo)), base_url="http://test"
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {api_key}"},
     ) as ac:
         yield ac
 
@@ -74,11 +106,13 @@ async def test_empty_bucket_returns_empty_objects(
 
 
 async def test_returns_objects_from_correct_bucket(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    other_bucket = await repo.save(Bucket(name="other-bucket"))
-    await repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--correct")])
-    await repo.add_entities(
+    other_bucket = await bucket_repo.save(Bucket(name="other-bucket"))
+    await bucket_repo.add_entities(
+        bucket.id, [make_entity(bucket.id, "indicator--correct")]
+    )
+    await bucket_repo.add_entities(
         other_bucket.id, [make_entity(other_bucket.id, "indicator--wrong")]
     )
 
@@ -91,9 +125,9 @@ async def test_returns_objects_from_correct_bucket(
 
 
 async def test_returns_all_objects_when_under_limit(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(3)]
     )
 
@@ -107,9 +141,9 @@ async def test_returns_all_objects_when_under_limit(
 
 
 async def test_pagination_sets_more_and_next_cursor(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
     )
 
@@ -123,9 +157,9 @@ async def test_pagination_sets_more_and_next_cursor(
 
 
 async def test_cursor_advances_to_next_page(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i:04d}") for i in range(5)]
     )
 
@@ -147,9 +181,9 @@ async def test_cursor_advances_to_next_page(
 
 
 async def test_pages_are_stable_and_ordered(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i:04d}") for i in range(6)]
     )
 
@@ -176,3 +210,32 @@ async def test_unknown_collection_returns_404(client: AsyncClient) -> None:
     body = response.json()
     assert body["title"] == "Collection Not Found"
     assert body["http_status"] == "404"
+
+
+async def test_unauthenticated_request_returns_401(
+    bucket_repo: DatabaseBucketRepository,
+    user_repo: DatabaseUserRepository,
+    bucket: Bucket,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
+        base_url="http://test",
+    ) as unauthenticated:
+        response = await unauthenticated.get(OBJECTS_URL)
+
+    assert response.status_code == 401
+
+
+async def test_invalid_token_returns_401(
+    bucket_repo: DatabaseBucketRepository,
+    user_repo: DatabaseUserRepository,
+    bucket: Bucket,
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
+        base_url="http://test",
+        headers={"Authorization": "Bearer not-a-real-key"},
+    ) as bad_client:
+        response = await bad_client.get(OBJECTS_URL)
+
+    assert response.status_code == 401

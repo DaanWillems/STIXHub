@@ -1,8 +1,9 @@
+import uuid as uuid_module
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.ext.mutable import MutableDict
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, UUID as SAUUID
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -123,4 +124,17 @@ class StixEntityModel(Base):
     object = mapped_column(MutableDict.as_mutable(JSONB))
     other_stix_ids: Mapped[Optional[list[str]]] = mapped_column(
         JSONB, nullable=True, default=None
+    )
+
+
+class UserModel(Base):
+    __tablename__ = "user_model"
+    id: Mapped[uuid_module.UUID] = mapped_column(
+        SAUUID(as_uuid=True), primary_key=True, default=uuid_module.uuid4
+    )
+    email: Mapped[str] = mapped_column(unique=True, nullable=False)
+    roles: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    api_key_hash: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
