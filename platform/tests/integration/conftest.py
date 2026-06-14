@@ -1,4 +1,5 @@
 import pytest
+from repositories.user import DatabaseUserRepository
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -33,5 +34,9 @@ async def session(engine):
 
 
 @pytest.fixture
-def repo(session):
+def bucket_repo(session: AsyncSession) -> DatabaseBucketRepository:
     return DatabaseBucketRepository(session)
+
+@pytest.fixture
+def user_repo(session: AsyncSession) -> DatabaseUserRepository:
+    return DatabaseUserRepository(session)

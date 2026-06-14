@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from dependencies import get_bucket_repo, get_user_repo
@@ -45,18 +44,12 @@ def make_entity(bucket_id: int, stix_id: str = "indicator--abc123") -> StixEntit
         object={"id": stix_id, "type": "indicator"},
     )
 
-
-@pytest.fixture
-def user_repo(session: AsyncSession) -> DatabaseUserRepository:
-    return DatabaseUserRepository(session)
-
-
 @pytest.fixture
 async def api_key(
-    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository
 ) -> str:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo, user_repo)),
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
         base_url="http://test",
         headers={"Authorization": f"Bearer {settings.ADMIN_API_KEY}"},
     ) as admin_client:
@@ -68,16 +61,16 @@ async def api_key(
 
 
 @pytest.fixture
-async def bucket(repo: DatabaseBucketRepository) -> Bucket:
-    return await repo.save(Bucket(name="Example collection"))
+async def bucket(bucket_repo: DatabaseBucketRepository) -> Bucket:
+    return await bucket_repo.save(Bucket(name="Example collection"))
 
 
 @pytest.fixture
 async def client(
-    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, api_key: str
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, api_key: str
 ) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo, user_repo)),
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
         base_url="http://test",
         headers={"Authorization": f"Bearer {api_key}"},
     ) as ac:
@@ -97,11 +90,11 @@ async def test_empty_bucket_returns_empty_objects(
 
 
 async def test_returns_objects_from_correct_bucket(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    other_bucket = await repo.save(Bucket(name="other-bucket"))
-    await repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--correct")])
-    await repo.add_entities(
+    other_bucket = await bucket_repo.save(Bucket(name="other-bucket"))
+    await bucket_repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--correct")])
+    await bucket_repo.add_entities(
         other_bucket.id, [make_entity(other_bucket.id, "indicator--wrong")]
     )
 
@@ -114,9 +107,9 @@ async def test_returns_objects_from_correct_bucket(
 
 
 async def test_returns_all_objects_when_under_limit(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(3)]
     )
 
@@ -130,9 +123,9 @@ async def test_returns_all_objects_when_under_limit(
 
 
 async def test_pagination_sets_more_and_next_cursor(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
     )
 
@@ -146,9 +139,9 @@ async def test_pagination_sets_more_and_next_cursor(
 
 
 async def test_cursor_advances_to_next_page(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i:04d}") for i in range(5)]
     )
 
@@ -170,9 +163,9 @@ async def test_cursor_advances_to_next_page(
 
 
 async def test_pages_are_stable_and_ordered(
-    client: AsyncClient, repo: DatabaseBucketRepository, bucket: Bucket
+    client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
-    await repo.add_entities(
+    await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i:04d}") for i in range(6)]
     )
 
@@ -202,10 +195,10 @@ async def test_unknown_collection_returns_404(client: AsyncClient) -> None:
 
 
 async def test_unauthenticated_request_returns_401(
-    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
 ) -> None:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo, user_repo)), base_url="http://test"
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)), base_url="http://test"
     ) as unauthenticated:
         response = await unauthenticated.get(OBJECTS_URL)
 
@@ -213,10 +206,10 @@ async def test_unauthenticated_request_returns_401(
 
 
 async def test_invalid_token_returns_401(
-    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
 ) -> None:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo, user_repo)),
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
         base_url="http://test",
         headers={"Authorization": "Bearer not-a-real-key"},
     ) as bad_client:
