@@ -1,4 +1,25 @@
 services:
+  platform:
+    build:
+      context: ./platform
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      STIX_HUB_DATABASE_HOST: postgres
+      STIX_HUB_DATABASE_PORT: 5432
+      STIX_HUB_DATABASE_NAME: app
+      STIX_HUB_DATABASE_USER: postgres
+      STIX_HUB_DATABASE_PASS: postgres
+      STIX_HUB_DATABASE_ENGINE_ECHO: "false"
+      STIX_HUB_PLATFORM_CONFIG: /config/platform_config.yaml
+      STIX_HUB_ADMIN_API_KEY: ${ADMIN_API_KEY}
+    volumes:
+      - ./platform_config.yaml:/config/platform_config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:17
     environment:
