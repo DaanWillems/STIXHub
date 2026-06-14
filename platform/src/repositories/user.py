@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import delete, select, update

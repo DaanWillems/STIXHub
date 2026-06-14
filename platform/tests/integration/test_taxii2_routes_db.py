@@ -4,21 +4,29 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from dependencies import get_bucket_repo
+from config import settings
+from dependencies import get_bucket_repo, get_user_repo
 from models.domain import Bucket, StixEntity
 from repositories.bucket import DatabaseBucketRepository
+from repositories.user import DatabaseUserRepository
 from routes.taxii2 import taxii2_router
+from routes.users import users_router
 
 
 COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
 
-def make_app(repo: DatabaseBucketRepository) -> FastAPI:
+def make_app(
+    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository
+) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
-    app.dependency_overrides[get_bucket_repo] = lambda: repo
+    app.include_router(users_router)
+    app.dependency_overrides[get_bucket_repo] = lambda: bucket_repo
+    app.dependency_overrides[get_user_repo] = lambda: user_repo
     return app
 
 
@@ -39,14 +47,39 @@ def make_entity(bucket_id: int, stix_id: str = "indicator--abc123") -> StixEntit
 
 
 @pytest.fixture
+def user_repo(session: AsyncSession) -> DatabaseUserRepository:
+    return DatabaseUserRepository(session)
+
+
+@pytest.fixture
+async def api_key(
+    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository
+) -> str:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(repo, user_repo)),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {settings.ADMIN_API_KEY}"},
+    ) as admin_client:
+        response = await admin_client.post(
+            "/users/", json={"email": "test@example.com", "roles": ["admin"]}
+        )
+    assert response.status_code == 201
+    return str(response.json()["api_key"])
+
+
+@pytest.fixture
 async def bucket(repo: DatabaseBucketRepository) -> Bucket:
     return await repo.save(Bucket(name="Example collection"))
 
 
 @pytest.fixture
-async def client(repo: DatabaseBucketRepository) -> AsyncGenerator[AsyncClient, None]:
+async def client(
+    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, api_key: str
+) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(repo)), base_url="http://test"
+        transport=ASGITransport(app=make_app(repo, user_repo)),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {api_key}"},
     ) as ac:
         yield ac
 
@@ -166,3 +199,27 @@ async def test_unknown_collection_returns_404(client: AsyncClient) -> None:
     body = response.json()
     assert body["title"] == "Collection Not Found"
     assert body["http_status"] == "404"
+
+
+async def test_unauthenticated_request_returns_401(
+    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(repo, user_repo)), base_url="http://test"
+    ) as unauthenticated:
+        response = await unauthenticated.get(OBJECTS_URL)
+
+    assert response.status_code == 401
+
+
+async def test_invalid_token_returns_401(
+    repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=make_app(repo, user_repo)),
+        base_url="http://test",
+        headers={"Authorization": "Bearer not-a-real-key"},
+    ) as bad_client:
+        response = await bad_client.get(OBJECTS_URL)
+
+    assert response.status_code == 401

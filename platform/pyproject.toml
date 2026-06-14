@@ -40,6 +40,7 @@ env = [
     "STIX_HUB_DATABASE_PASS=postgres",
     "STIX_HUB_DATABASE_USE_NULLPOOL=true",
     "STIX_HUB_DATABASE_ENGINE_ECHO=false",
+    "STIX_HUB_ADMIN_API_KEY=test-admin-key",
 ]
 asyncio_mode = "auto"
 
