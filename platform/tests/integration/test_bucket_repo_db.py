@@ -47,7 +47,9 @@ async def test_get_bucket_by_name(bucket_repo: DatabaseBucketRepository):
     assert retrieved.name == "test-bucket"
 
 
-async def test_get_raises_when_neither_argument_given(bucket_repo: DatabaseBucketRepository):
+async def test_get_raises_when_neither_argument_given(
+    bucket_repo: DatabaseBucketRepository,
+):
     with pytest.raises(ValueError):
         await bucket_repo.get()
 
@@ -97,7 +99,9 @@ async def test_get_entities_returns_empty_for_new_bucket(
     assert stored == []
 
 
-async def test_entities_default_to_pending_status(bucket_repo: DatabaseBucketRepository):
+async def test_entities_default_to_pending_status(
+    bucket_repo: DatabaseBucketRepository,
+):
     bucket = await bucket_repo.save(Bucket(name="test-bucket"))
     await bucket_repo.add_entities(bucket.id, [make_entity(bucket.id)])
 
@@ -139,7 +143,9 @@ async def test_get_entities_with_offset(bucket_repo: DatabaseBucketRepository):
     assert len(stored) == 2
 
 
-async def test_get_entities_with_limit_and_offset(bucket_repo: DatabaseBucketRepository):
+async def test_get_entities_with_limit_and_offset(
+    bucket_repo: DatabaseBucketRepository,
+):
     bucket = await bucket_repo.save(Bucket(name="test-bucket"))
     await bucket_repo.add_entities(
         bucket.id, [make_entity(bucket.id, f"indicator--{i}") for i in range(5)]
@@ -150,7 +156,9 @@ async def test_get_entities_with_limit_and_offset(bucket_repo: DatabaseBucketRep
     assert len(stored) == 2
 
 
-async def test_acquire_entities_marks_as_processing(bucket_repo: DatabaseBucketRepository):
+async def test_acquire_entities_marks_as_processing(
+    bucket_repo: DatabaseBucketRepository,
+):
     bucket = await bucket_repo.save(Bucket(name="test-bucket"))
     await bucket_repo.add_entities(
         bucket.id,

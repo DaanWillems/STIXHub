@@ -50,8 +50,12 @@ async def test_create_user_duplicate_email_returns_409(
     repo: InMemoryUserRepository,
 ) -> None:
     app = make_app(repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/users/", json={"email": "alice@example.com", "roles": ["admin"]})
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post(
+            "/users/", json={"email": "alice@example.com", "roles": ["admin"]}
+        )
         response = await client.post(
             "/users/", json={"email": "alice@example.com", "roles": ["reader"]}
         )
@@ -87,9 +91,15 @@ async def test_list_users_returns_empty_list(repo: InMemoryUserRepository) -> No
 
 async def test_list_users_returns_created_users(repo: InMemoryUserRepository) -> None:
     app = make_app(repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/users/", json={"email": "a@example.com", "roles": ["admin"]})
-        await client.post("/users/", json={"email": "b@example.com", "roles": ["reader"]})
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post(
+            "/users/", json={"email": "a@example.com", "roles": ["admin"]}
+        )
+        await client.post(
+            "/users/", json={"email": "b@example.com", "roles": ["reader"]}
+        )
         response = await client.get("/users/")
 
     assert response.status_code == 200
@@ -103,7 +113,9 @@ async def test_list_users_returns_created_users(repo: InMemoryUserRepository) ->
 
 async def test_patch_user_updates_roles(repo: InMemoryUserRepository) -> None:
     app = make_app(repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         create_resp = await client.post(
             "/users/", json={"email": "alice@example.com", "roles": ["reader"]}
         )
@@ -116,6 +128,7 @@ async def test_patch_user_updates_roles(repo: InMemoryUserRepository) -> None:
 
 async def test_patch_user_not_found_returns_404(repo: InMemoryUserRepository) -> None:
     import uuid
+
     async with AsyncClient(
         transport=ASGITransport(app=make_app(repo)), base_url="http://test"
     ) as client:
@@ -126,9 +139,13 @@ async def test_patch_user_not_found_returns_404(repo: InMemoryUserRepository) ->
     assert response.status_code == 404
 
 
-async def test_patch_user_unknown_role_returns_422(repo: InMemoryUserRepository) -> None:
+async def test_patch_user_unknown_role_returns_422(
+    repo: InMemoryUserRepository,
+) -> None:
     app = make_app(repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         create_resp = await client.post(
             "/users/", json={"email": "alice@example.com", "roles": ["admin"]}
         )
@@ -143,7 +160,9 @@ async def test_patch_user_unknown_role_returns_422(repo: InMemoryUserRepository)
 
 async def test_delete_user_returns_204(repo: InMemoryUserRepository) -> None:
     app = make_app(repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         create_resp = await client.post(
             "/users/", json={"email": "alice@example.com", "roles": ["admin"]}
         )
@@ -155,6 +174,7 @@ async def test_delete_user_returns_204(repo: InMemoryUserRepository) -> None:
 
 async def test_delete_user_not_found_returns_404(repo: InMemoryUserRepository) -> None:
     import uuid
+
     async with AsyncClient(
         transport=ASGITransport(app=make_app(repo)), base_url="http://test"
     ) as client:
@@ -165,7 +185,9 @@ async def test_delete_user_not_found_returns_404(repo: InMemoryUserRepository) -
 
 async def test_delete_user_removes_from_list(repo: InMemoryUserRepository) -> None:
     app = make_app(repo)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
         create_resp = await client.post(
             "/users/", json={"email": "alice@example.com", "roles": ["admin"]}
         )

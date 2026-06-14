@@ -7,7 +7,8 @@ from httpx import ASGITransport, AsyncClient
 
 from config import settings
 from dependencies import get_bucket_repo, get_user_repo
-from models.domain import Bucket, StixEntity
+from models.domain import Bucket, StixEntity, TaxiiCollectionModel
+from models.domain import CollectionConfig
 from repositories.bucket import DatabaseBucketRepository
 from repositories.user import DatabaseUserRepository
 from routes.taxii2 import taxii2_router
@@ -16,6 +17,17 @@ from routes.users import users_router
 
 COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
+
+_DEFAULT_COLLECTION = CollectionConfig(
+    taxii_collection=TaxiiCollectionModel(
+        id=COLLECTION_ID,
+        title="Example collection",
+        description="test",
+        can_read=True,
+        can_write=True,
+    ),
+    bucket_name="Example collection",
+)
 
 
 def make_app(
@@ -26,6 +38,7 @@ def make_app(
     app.include_router(users_router)
     app.dependency_overrides[get_bucket_repo] = lambda: bucket_repo
     app.dependency_overrides[get_user_repo] = lambda: user_repo
+    app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
     return app
 
 
@@ -43,6 +56,7 @@ def make_entity(bucket_id: int, stix_id: str = "indicator--abc123") -> StixEntit
         platform_created=now,
         object={"id": stix_id, "type": "indicator"},
     )
+
 
 @pytest.fixture
 async def api_key(
@@ -67,7 +81,9 @@ async def bucket(bucket_repo: DatabaseBucketRepository) -> Bucket:
 
 @pytest.fixture
 async def client(
-    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, api_key: str
+    bucket_repo: DatabaseBucketRepository,
+    user_repo: DatabaseUserRepository,
+    api_key: str,
 ) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(
         transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
@@ -93,7 +109,9 @@ async def test_returns_objects_from_correct_bucket(
     client: AsyncClient, bucket_repo: DatabaseBucketRepository, bucket: Bucket
 ) -> None:
     other_bucket = await bucket_repo.save(Bucket(name="other-bucket"))
-    await bucket_repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--correct")])
+    await bucket_repo.add_entities(
+        bucket.id, [make_entity(bucket.id, "indicator--correct")]
+    )
     await bucket_repo.add_entities(
         other_bucket.id, [make_entity(other_bucket.id, "indicator--wrong")]
     )
@@ -195,10 +213,13 @@ async def test_unknown_collection_returns_404(client: AsyncClient) -> None:
 
 
 async def test_unauthenticated_request_returns_401(
-    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
+    bucket_repo: DatabaseBucketRepository,
+    user_repo: DatabaseUserRepository,
+    bucket: Bucket,
 ) -> None:
     async with AsyncClient(
-        transport=ASGITransport(app=make_app(bucket_repo, user_repo)), base_url="http://test"
+        transport=ASGITransport(app=make_app(bucket_repo, user_repo)),
+        base_url="http://test",
     ) as unauthenticated:
         response = await unauthenticated.get(OBJECTS_URL)
 
@@ -206,7 +227,9 @@ async def test_unauthenticated_request_returns_401(
 
 
 async def test_invalid_token_returns_401(
-    bucket_repo: DatabaseBucketRepository, user_repo: DatabaseUserRepository, bucket: Bucket
+    bucket_repo: DatabaseBucketRepository,
+    user_repo: DatabaseUserRepository,
+    bucket: Bucket,
 ) -> None:
     async with AsyncClient(
         transport=ASGITransport(app=make_app(bucket_repo, user_repo)),

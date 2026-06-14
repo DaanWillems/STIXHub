@@ -14,6 +14,7 @@ from models.domain import (
     BucketMode,
     CollectionConfig,
     RoleConfig,
+    TaxiiCollectionModel,
     StixEntity,
     TaxiiCollectionsRootResponseModel,
     TaxiiDiscoveryResponseModel,
@@ -25,7 +26,7 @@ from models.domain import (
     TaxiiWriteStatusModel,
     User,
 )
-from platform_config import BUCKET_CONFIGS, COLLECTION_CONFIGS, ROLE_CONFIGS
+from platform_config import ROLE_CONFIGS
 from processors import stix as stix_processor
 from repositories.bucket import BucketRepository
 
@@ -37,8 +38,6 @@ type CollectionsRepository = dict[str, CollectionConfig]
 
 BucketRepoDep = Annotated[BucketRepository, Depends(get_bucket_repo)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
-
-_active_configs: CollectionsRepository = dict(COLLECTION_CONFIGS)
 
 
 def _get_effective_permissions(
@@ -55,9 +54,9 @@ def _get_effective_permissions(
 
 
 async def provision_buckets(
-    repo: BucketRepository, configs: dict[str, BucketConfig] = BUCKET_CONFIGS
+    repo: BucketRepository, configs: list[BucketConfig]
 ) -> None:
-    for config in configs.values():
+    for config in configs:
         existing: Bucket | None = None
         try:
             existing = await repo.get(bucket_name=config.name)
@@ -84,21 +83,22 @@ async def provision_buckets(
                 )
 
 
-async def validate_collections(repo: BucketRepository) -> None:
-    global _active_configs
+async def validate_collections(
+    repo: BucketRepository, configs: list[CollectionConfig]
+) -> CollectionsRepository:
     valid: CollectionsRepository = {}
-    for cid, config in COLLECTION_CONFIGS.items():
+    for config in configs:
         try:
             await repo.get(bucket_name=config.bucket_name)
-            valid[cid] = config
+            valid[config.id] = config
         except Exception:
             logger.error(
                 "Collection '%s' ('%s') disabled: bucket '%s' not found",
-                cid,
-                config.taxii_collection.title,
+                config.id,
+                config.title,
                 config.bucket_name,
             )
-    _active_configs = valid
+    return valid
 
 
 def validate_roles(
@@ -114,8 +114,9 @@ def validate_roles(
                 )
 
 
-def get_dummy_collections() -> CollectionsRepository:
-    return _active_configs
+def get_active_collections(request: Request) -> CollectionsRepository:
+    result: CollectionsRepository = request.app.state.active_collections
+    return result
 
 
 def _encode_cursor(offset: int) -> str:
@@ -153,13 +154,19 @@ def taxii_root(_: CurrentUserDep) -> TaxiiRootResponseModel:
 @taxii2_router.get("/root/collections/")
 def taxii_collections_root(
     user: CurrentUserDep,
-    configs: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_active_collections),
 ) -> TaxiiCollectionsRootResponseModel:
     can_read, can_write = _get_effective_permissions(user.roles, ROLE_CONFIGS)
     accessible = can_read | can_write
     return TaxiiCollectionsRootResponseModel(
         collections=[
-            c.taxii_collection
+            TaxiiCollectionModel(
+                id=c.taxii_collection.id,
+                title=c.taxii_collection.title,
+                description=c.taxii_collection.description,
+                can_read=c.taxii_collection.can_read,
+                can_write=c.taxii_collection.can_write,
+            )
             for c in configs.values()
             if c.bucket_name in accessible
         ]
@@ -182,7 +189,7 @@ async def get_collection_objects(
     repo: BucketRepoDep,
     limit: int = Query(default=20, ge=1, le=1000),
     next_cursor: str | None = Query(default=None, alias="next"),
-    configs: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_active_collections),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(
@@ -262,7 +269,7 @@ async def add_collection_objects(
     bundle: TaxiiEnvelopeModel,
     user: CurrentUserDep,
     repo: BucketRepoDep,
-    configs: CollectionsRepository = Depends(get_dummy_collections),
+    configs: CollectionsRepository = Depends(get_active_collections),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(

@@ -139,7 +139,5 @@ class DatabaseUserRepository(UserRepository):
         return _user_from_model(result.scalar_one())
 
     async def delete(self, user_id: UUID) -> None:
-        await self._session.execute(
-            delete(UserModel).where(UserModel.id == user_id)
-        )
+        await self._session.execute(delete(UserModel).where(UserModel.id == user_id))
         await self._session.flush()

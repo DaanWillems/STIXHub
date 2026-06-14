@@ -26,7 +26,9 @@ def user_repo(session: AsyncSession) -> DatabaseUserRepository:
 
 
 @pytest.fixture
-async def client(user_repo: DatabaseUserRepository) -> AsyncGenerator[AsyncClient, None]:
+async def client(
+    user_repo: DatabaseUserRepository,
+) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(
         transport=ASGITransport(app=make_app(user_repo)), base_url="http://test"
     ) as ac:
@@ -52,7 +54,9 @@ async def test_create_user_returns_201_with_api_key(client: AsyncClient) -> None
 
 
 async def test_create_user_duplicate_email_returns_409(client: AsyncClient) -> None:
-    await client.post("/users/", json={"email": "alice@example.com", "roles": ["admin"]})
+    await client.post(
+        "/users/", json={"email": "alice@example.com", "roles": ["admin"]}
+    )
     response = await client.post(
         "/users/", json={"email": "alice@example.com", "roles": ["reader"]}
     )

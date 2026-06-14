@@ -5,9 +5,12 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from fastapi import Request
+
 from config import settings
 from database import db
 from models.domain import User
+from models.domain import PlatformConfig
 from repositories.bucket import (
     BucketRepository,
     DatabaseBucketRepository,
@@ -50,3 +53,8 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
+
+
+def get_platform_config(request: Request) -> PlatformConfig:
+    result: PlatformConfig = request.app.state.platform_config
+    return result

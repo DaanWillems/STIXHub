@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     DATABASE_ENGINE_ECHO: bool = True
     BUCKET_REPO_BACKEND: Literal["memory", "database"] = "database"
     ADMIN_API_KEY: str
+    PLATFORM_CONFIG: str = "platform_config.yaml"
 
 
 settings = Settings()

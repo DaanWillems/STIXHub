@@ -19,6 +19,7 @@ Write collections expose a TAXII 2.1 compliant write endpoint. Submitted STIX bu
 
 ## Collection Configuration
 
+<<<<<<< HEAD
 Collections are declared in `platform_config.yaml` and mapped to buckets by name. Each collection exposes one bucket; a bucket may back multiple collections.
 
 ```yaml
@@ -35,6 +36,30 @@ Rules:
 - `id` must be a valid UUID and unique across all declared collections.
 - `bucket` must match a declared bucket name; see [bucket-config.md](bucket-config.md) for bucket provisioning.
 - A collection whose referenced bucket is not found at startup is excluded from all API responses.
+=======
+Collections are defined in an external YAML file, not stored in the database and not hardcoded in Python. See [platform-config.md](platform-config.md) for the file format and loading mechanism.
+
+`CollectionConfig` is a pydantic `BaseModel` that holds TAXII fields plus the internal `bucket_name` routing field:
+
+```python
+class CollectionConfig(BaseModel):
+    id: str
+    title: str
+    description: str
+    can_read: bool
+    can_write: bool
+    bucket_name: str
+```
+
+`bucket_name` is platform-internal and never exposed to clients. `BucketMode` is a property of the bucket, not the collection — see [bucket-config.md](bucket-config.md). The route layer constructs a `TaxiiCollectionModel` from a `CollectionConfig` when building API responses.
+
+## Startup Validation
+
+Bucket provisioning runs before collection validation. See [bucket-config.md](bucket-config.md) for the full startup sequence. After buckets are provisioned, the platform validates collection config: for each `CollectionConfig`, check the referenced `bucket_name` exists in the database. For each missing bucket:
+- Log an error
+- Exclude that collection from all API responses
+- Continue starting up (do not crash)
+>>>>>>> main
 
 ## Write Endpoint
 

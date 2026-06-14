@@ -29,7 +29,9 @@ async def create_user(
             raise HTTPException(status_code=422, detail=f"Unknown role: '{role}'")
 
     if await repo.get_by_email(body.email) is not None:
-        raise HTTPException(status_code=409, detail=f"Email '{body.email}' already exists")
+        raise HTTPException(
+            status_code=409, detail=f"Email '{body.email}' already exists"
+        )
 
     api_key = secrets.token_hex(32)
     api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()

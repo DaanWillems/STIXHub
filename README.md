@@ -4,6 +4,32 @@ STIXHub is a platform for collecting and distributing Cyber Threat Intelligence 
 
 The platform also features a system for filtering and mutating CTI, to automate and improve data quality. 
 
+# Features
+STIXHub is currently not production ready, but does already support a number of useful features: \
+\
+:white_check_mark: TAXII 2.1 compatible endpoints \
+:white_check_mark: Writing to collections \
+:white_check_mark: Reading from collections \
+:white_check_mark: Storage system driven by the bucket design \
+:white_check_mark: Append only buckets
+
+**The following features are planned:**\
+\
+:heavy_exclamation_mark: Bucket merge mode for deduplication\
+:heavy_exclamation_mark: User management and RBAC on buckets\
+:heavy_exclamation_mark: Collector service to read external TAXII 2.1 endpoints\
+:heavy_exclamation_mark: Collector service to read external MISP endpoints\
+:heavy_exclamation_mark: Pipelines to move and transform data between buckets\
+:heavy_exclamation_mark: Multi node deployments to enable horizontal scaling
+
+**Possible features:** \
+\
+:question: External buckets to outsource entity processing\
+:question: CSV exporter for easy integration with legacy systems \
+:question: Frontend for exploring data \
+:question: Frontend for enabling human driven workflows (triaging and labelling intelligence) \
+:question: MCP integration for enabling agent driven workflows (triaging and labelling intelligence) \
+
 # Getting started
 ## Docker deploy
 ## Development environment
@@ -26,22 +52,6 @@ The main functionality of the platform is store and distribute STIX via TAXII. H
 - Configure TAXII collections via config as code that support filters and RBAC
 - Move and mutate data between 'buckets'
 - Simple RBAC system
-
-# Development roadmap
-
-Phase 1:
-- Read and write collections
-- Only single node deployment
-
-Phase 2:
-- Collector service
-- Multi node deployment
-
-Phase 3:
-- Single node pipelines
-
-Phase 4:
-- Multi node pipelines
 
 # Design
 This section details the system design of TAXIIHub. The system is built of 4 main components:

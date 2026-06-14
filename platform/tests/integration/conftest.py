@@ -37,6 +37,7 @@ async def session(engine):
 def bucket_repo(session: AsyncSession) -> DatabaseBucketRepository:
     return DatabaseBucketRepository(session)
 
+
 @pytest.fixture
 def user_repo(session: AsyncSession) -> DatabaseUserRepository:
     return DatabaseUserRepository(session)

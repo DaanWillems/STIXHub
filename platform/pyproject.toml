@@ -15,7 +15,8 @@ dependencies = [
     "sqlalchemy",
     "psycopg[binary]",
     "asyncpg",
-    "uvicorn"
+    "uvicorn",
+    "pyyaml"
 ]
 
 [project.optional-dependencies]
@@ -26,7 +27,8 @@ dev = [
     "pytest-env",
     "pytest-cov",
     "pytest-asyncio",
-    "httpx"
+    "httpx",
+    "types-PyYAML"
 ]
 
 [tool.pytest.ini_options]
