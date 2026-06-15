@@ -1,5 +1,6 @@
 from typing import AsyncGenerator
 
+from src.__main__ import _load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -15,6 +16,8 @@ def make_app(repo: UserRepository) -> FastAPI:
     app.include_router(users_router)
     app.dependency_overrides[get_user_repo] = lambda: repo
     app.dependency_overrides[require_admin] = lambda: None
+    config = _load_platform_config()
+    app.state.platform_config = config
     return app
 
 

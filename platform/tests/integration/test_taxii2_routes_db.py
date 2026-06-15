@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
+from src.__main__ import _load_platform_config
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -39,6 +40,9 @@ def make_app(
     app.dependency_overrides[get_bucket_repo] = lambda: bucket_repo
     app.dependency_overrides[get_user_repo] = lambda: user_repo
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
+
+    config = _load_platform_config()
+    app.state.platform_config = config
     return app
 
 
