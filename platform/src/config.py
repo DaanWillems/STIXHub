@@ -1,6 +1,11 @@
 from typing import Literal
 
+from models.domain import PlatformConfig
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
+
+import yaml
+from pydantic import ValidationError
 
 
 class Settings(BaseSettings):
@@ -20,3 +25,20 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+def load_platform_config() -> PlatformConfig:
+    config_path = Path(settings.PLATFORM_CONFIG)
+    try:
+        raw = yaml.safe_load(config_path.read_text())
+    except FileNotFoundError:
+        raise RuntimeError(f"Platform config file not found: {config_path.resolve()}")
+    except yaml.YAMLError as exc:
+        raise RuntimeError(
+            f"Invalid YAML in platform config at {config_path.resolve()}: {exc}"
+        )
+    try:
+        return PlatformConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise RuntimeError(
+            f"Invalid platform config at {config_path.resolve()}:\n{exc}"
+        )

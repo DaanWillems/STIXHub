@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from src.__main__ import _load_platform_config
+from config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from dependencies import get_bucket_repo, get_current_user, get_platform_config
+from dependencies import get_bucket_repo, get_current_user
 from models.domain import (
     Bucket,
     CollectionConfig,
@@ -45,7 +45,7 @@ def make_app(repo: BucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
 
-    config = _load_platform_config()
+    config = load_platform_config()
     app.state.platform_config = config
 
     app.dependency_overrides[get_bucket_repo] = lambda: repo
