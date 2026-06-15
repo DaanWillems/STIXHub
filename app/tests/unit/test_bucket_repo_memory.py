@@ -1,5 +1,5 @@
-from models.domain import Bucket
-from repositories.bucket import InMemoryBucketRepository
+from server.models.domain import Bucket
+from server.repositories.bucket import InMemoryBucketRepository
 
 
 async def test_get_bucket_repo_memory():

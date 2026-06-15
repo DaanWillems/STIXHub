@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from processors.stix import STIX_NAMESPACE, process
+from server.processors.stix import STIX_NAMESPACE, process
 
 
 def _base(type_: str, id_: str, **extra: object) -> dict:  # type: ignore[type-arg]

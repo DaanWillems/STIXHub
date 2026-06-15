@@ -1,6 +1,10 @@
 [build-system]
 requires= ["setuptools>=72.0"]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["worker*", "platform*", "shared_models*"]
+
 [project]
 name = "STIXHub"
 dynamic = ["version"]
@@ -43,7 +47,7 @@ env = [
     "STIX_HUB_DATABASE_USE_NULLPOOL=true",
     "STIX_HUB_DATABASE_ENGINE_ECHO=false",
     "STIX_HUB_ADMIN_API_KEY=test-admin-key",
-    "STIX_HUB_PLATFORM_CONFIG=./platform/tests/platform_config.yaml",
+    "STIX_HUB_PLATFORM_CONFIG=./tests/platform_config.yaml",
 ]
 asyncio_mode = "auto"
 

@@ -4,16 +4,16 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 
 import uvicorn
-from config import load_platform_config, settings
-from database import db
-from repositories.bucket import DatabaseBucketRepository
-from routes.taxii2 import (
+from server.config import load_platform_config, settings
+from server.database import db
+from server.repositories.bucket import DatabaseBucketRepository
+from server.routes.taxii2 import (
     provision_buckets,
     taxii2_router,
     validate_collections,
     validate_roles,
 )
-from routes.users import users_router
+from server.routes.users import users_router
 
 
 @contextlib.asynccontextmanager
@@ -52,4 +52,4 @@ def health() -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    uvicorn.run("src.__main__:app")
+    uvicorn.run("server.__main__:app")

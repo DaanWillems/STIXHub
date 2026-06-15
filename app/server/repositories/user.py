@@ -4,8 +4,8 @@ from uuid import UUID
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.data import UserModel
-from models.domain import User
+from shared_models.data import UserModel
+from server.models.domain import User
 
 
 def _user_from_model(model: UserModel) -> User:

@@ -2,20 +2,20 @@ import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from config import load_platform_config
+from server.config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from dependencies import get_bucket_repo, get_current_user
-from models.domain import (
+from server.dependencies import get_bucket_repo, get_current_user
+from server.models.domain import (
     Bucket,
     CollectionConfig,
     StixEntity,
     TaxiiCollectionModel,
     User,
 )
-from repositories.bucket import BucketRepository, InMemoryBucketRepository
-from routes.taxii2 import get_active_collections, taxii2_router
+from server.repositories.bucket import BucketRepository, InMemoryBucketRepository
+from server.routes.taxii2 import get_active_collections, taxii2_router
 
 from fastapi import FastAPI
 

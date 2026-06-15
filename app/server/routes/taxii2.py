@@ -7,8 +7,8 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from dependencies import get_bucket_repo, get_current_user, get_platform_config
-from models.domain import (
+from server.dependencies import get_bucket_repo, get_current_user, get_platform_config
+from server.models.domain import (
     Bucket,
     BucketConfig,
     BucketMode,
@@ -27,8 +27,8 @@ from models.domain import (
     TaxiiWriteStatusModel,
     User,
 )
-from processors import stix as stix_processor
-from repositories.bucket import BucketRepository
+from server.processors import stix as stix_processor
+from server.repositories.bucket import BucketRepository
 
 logger = logging.getLogger(__name__)
 

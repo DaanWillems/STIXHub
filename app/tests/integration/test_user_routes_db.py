@@ -1,16 +1,16 @@
 from collections.abc import AsyncGenerator
 
-from config import load_platform_config
+from server.config import load_platform_config
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dependencies import get_user_repo, require_admin
-from models.data import UserModel
-from repositories.user import DatabaseUserRepository
-from routes.users import users_router
+from server.dependencies import get_user_repo, require_admin
+from server.models.data import UserModel
+from server.repositories.user import DatabaseUserRepository
+from server.routes.users import users_router
 
 
 def make_app(repo: DatabaseUserRepository) -> FastAPI:

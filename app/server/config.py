@@ -1,6 +1,6 @@
 from typing import Literal
 
-from models.domain import PlatformConfig
+from server.models.domain import PlatformConfig
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 

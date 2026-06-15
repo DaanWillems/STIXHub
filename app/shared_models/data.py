@@ -9,7 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from enum import Enum
-from models.domain import BucketMode, ProcessingStatus
+from server.models.domain import BucketMode, ProcessingStatus
 
 
 class StixType(Enum):
