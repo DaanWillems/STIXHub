@@ -9,7 +9,6 @@ from pydantic import ValidationError
 import uvicorn
 from config import settings
 from database import db
-from platform_config import BUCKET_CONFIGS, ROLE_CONFIGS
 from models.domain import PlatformConfig
 from repositories.bucket import DatabaseBucketRepository
 from routes.taxii2 import (
@@ -45,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.platform_config = platform_config
 
     await db.create_tables()
-    validate_roles(BUCKET_CONFIGS, ROLE_CONFIGS)
+    validate_roles(platform_config.buckets, platform_config.roles)
     if settings.BUCKET_REPO_BACKEND == "database":
         async with db.get_session() as session:
             repo = DatabaseBucketRepository(session)

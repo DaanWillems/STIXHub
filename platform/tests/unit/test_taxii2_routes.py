@@ -5,10 +5,14 @@ from typing import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from dependencies import get_bucket_repo, get_current_user
+from dependencies import get_bucket_repo, get_current_user, get_platform_config
 from models.domain import (
     Bucket,
+    BucketConfig,
+    BucketMode,
     CollectionConfig,
+    PlatformConfig,
+    RoleConfig,
     StixEntity,
     TaxiiCollectionModel,
     User,
@@ -40,12 +44,36 @@ _DEFAULT_COLLECTION = CollectionConfig(
     bucket_name="Example collection",
 )
 
+_CONFIG = PlatformConfig(
+    buckets=[
+        BucketConfig(
+            name="Bucket 1",
+            mode=BucketMode.append
+        )
+    ],
+    roles=[
+        RoleConfig(
+            name="Admin",
+            can_read=["Bucket 1"],
+            can_write=["Bucket 1"]
+        )
+    ],
+    collections=[
+        CollectionConfig(
+            taxii_collection="Test",
+            bucket_name="Bucket 1"
+        )
+    ]
+)
+
+
 
 def make_app(repo: BucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
     app.dependency_overrides[get_bucket_repo] = lambda: repo
     app.dependency_overrides[get_current_user] = lambda: _TEST_USER
+    app.dependency_overrides[get_platform_config] = lambda: _CONFIG
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
     return app
 

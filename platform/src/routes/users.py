@@ -7,9 +7,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from dependencies import get_user_repo, require_admin
-from models.domain import User, UserCreate, UserCreateResponse, UserPatch, UserResponse
-from platform_config import ROLE_CONFIGS
+from dependencies import get_platform_config, get_user_repo, require_admin
+from models.domain import PlatformConfig, User, UserCreate, UserCreateResponse, UserPatch, UserResponse
 from repositories.user import UserRepository
 
 users_router = APIRouter(prefix="/users", tags=["Users"])
@@ -23,9 +22,10 @@ async def create_user(
     _: AdminDep,
     body: UserCreate,
     repo: UserRepoDep,
+    platform_config: PlatformConfig = Depends(get_platform_config)
 ) -> UserCreateResponse:
     for role in body.roles:
-        if role not in ROLE_CONFIGS:
+        if role not in [role.name for role in platform_config.roles]:
             raise HTTPException(status_code=422, detail=f"Unknown role: '{role}'")
 
     if await repo.get_by_email(body.email) is not None:
@@ -71,9 +71,10 @@ async def patch_user(
     _: AdminDep,
     body: UserPatch,
     repo: UserRepoDep,
+    platform_config: PlatformConfig = Depends(get_platform_config)
 ) -> UserResponse:
     for role in body.roles:
-        if role not in ROLE_CONFIGS:
+        if role not in [role.name for role in platform_config.roles]:
             raise HTTPException(status_code=422, detail=f"Unknown role: '{role}'")
 
     if await repo.get_by_id(user_id) is None:

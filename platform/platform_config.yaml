@@ -1,0 +1,35 @@
+buckets:
+  - name: raw-intel
+    mode: append
+  - name: Example collection 2
+    mode: append
+
+collections:
+  - id: 70a16fcf-8146-2da8-be66-6ca6fb7280af
+    title: Raw Intel Feed
+    description: Raw threat intelligence objects
+    can_read: true
+    can_write: false
+    bucket_name: raw-intel
+
+  - id: 9b3f1a2e-4c7d-4e8f-b123-5a6b7c8d9e0f
+    title: Intel Ingest
+    description: Write-only collection for collectors
+    can_read: false
+    can_write: true
+    bucket_name: raw-intel
+
+roles:
+  - name: analyst
+    can_read:
+      - raw-intel
+    can_write: []
+  - name: collector
+    can_read: []
+    can_write:
+      - raw-intel
+  - name: admin
+    can_read:
+      - raw-intel
+    can_write:
+      - raw-intel

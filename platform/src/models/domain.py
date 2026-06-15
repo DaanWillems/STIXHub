@@ -23,6 +23,11 @@ class BucketConfig(BaseModel):
     mode: BucketMode
 
 
+class RoleConfig(BaseModel):
+    name: str
+    can_read: list[str]
+    can_write: list[str]
+
 class CollectionConfig(BaseModel):
     id: str
     title: str
@@ -35,6 +40,7 @@ class CollectionConfig(BaseModel):
 class PlatformConfig(BaseModel):
     buckets: list[BucketConfig]
     collections: list[CollectionConfig]
+    roles: list[RoleConfig]
 
 
 @dataclass
