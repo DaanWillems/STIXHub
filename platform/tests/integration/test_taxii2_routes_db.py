@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from config import settings
+from config import load_platform_config, settings
 from dependencies import get_bucket_repo, get_user_repo
 from models.domain import Bucket, StixEntity, TaxiiCollectionModel
 from models.domain import CollectionConfig
@@ -39,6 +39,9 @@ def make_app(
     app.dependency_overrides[get_bucket_repo] = lambda: bucket_repo
     app.dependency_overrides[get_user_repo] = lambda: user_repo
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
+
+    config = load_platform_config()
+    app.state.platform_config = config
     return app
 
 

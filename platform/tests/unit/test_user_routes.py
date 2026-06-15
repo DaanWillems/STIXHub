@@ -1,5 +1,6 @@
 from typing import AsyncGenerator
 
+from config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -15,6 +16,8 @@ def make_app(repo: UserRepository) -> FastAPI:
     app.include_router(users_router)
     app.dependency_overrides[get_user_repo] = lambda: repo
     app.dependency_overrides[require_admin] = lambda: None
+    config = load_platform_config()
+    app.state.platform_config = config
     return app
 
 
@@ -74,9 +77,6 @@ async def test_create_user_unknown_role_returns_422(
         )
 
     assert response.status_code == 422
-
-
-# --- List users ---
 
 
 async def test_list_users_returns_empty_list(repo: InMemoryUserRepository) -> None:

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
+from config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -44,6 +45,10 @@ _DEFAULT_COLLECTION = CollectionConfig(
 def make_app(repo: BucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
+
+    config = load_platform_config()
+    app.state.platform_config = config
+
     app.dependency_overrides[get_bucket_repo] = lambda: repo
     app.dependency_overrides[get_current_user] = lambda: _TEST_USER
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}

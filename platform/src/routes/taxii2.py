@@ -7,12 +7,13 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from dependencies import get_bucket_repo, get_current_user
+from dependencies import get_bucket_repo, get_current_user, get_platform_config
 from models.domain import (
     Bucket,
     BucketConfig,
     BucketMode,
     CollectionConfig,
+    PlatformConfig,
     RoleConfig,
     TaxiiCollectionModel,
     StixEntity,
@@ -26,7 +27,6 @@ from models.domain import (
     TaxiiWriteStatusModel,
     User,
 )
-from platform_config import ROLE_CONFIGS
 from processors import stix as stix_processor
 from repositories.bucket import BucketRepository
 
@@ -41,13 +41,15 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 def _get_effective_permissions(
-    user_roles: list[str],
-    role_configs: dict[str, RoleConfig],
+    user_roles: list[str], role_configs: list[RoleConfig]
 ) -> tuple[set[str], set[str]]:
     can_read: set[str] = set()
     can_write: set[str] = set()
+
+    role_map = {role.name: role for role in role_configs}
+
     for role_name in user_roles:
-        if role := role_configs.get(role_name):
+        if role := role_map.get(role_name):
             can_read.update(role.can_read)
             can_write.update(role.can_write)
     return can_read, can_write
@@ -102,11 +104,11 @@ async def validate_collections(
 
 
 def validate_roles(
-    bucket_configs: dict[str, BucketConfig],
-    role_configs: dict[str, RoleConfig],
+    bucket_configs: list[BucketConfig],
+    role_configs: list[RoleConfig],
 ) -> None:
-    known_buckets = set(bucket_configs.keys())
-    for role in role_configs.values():
+    known_buckets = set([bucket.name for bucket in bucket_configs])
+    for role in role_configs:
         for bucket_name in role.can_read + role.can_write:
             if bucket_name not in known_buckets:
                 raise RuntimeError(
@@ -155,8 +157,9 @@ def taxii_root(_: CurrentUserDep) -> TaxiiRootResponseModel:
 def taxii_collections_root(
     user: CurrentUserDep,
     configs: CollectionsRepository = Depends(get_active_collections),
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> TaxiiCollectionsRootResponseModel:
-    can_read, can_write = _get_effective_permissions(user.roles, ROLE_CONFIGS)
+    can_read, can_write = _get_effective_permissions(user.roles, platform_config.roles)
     accessible = can_read | can_write
     return TaxiiCollectionsRootResponseModel(
         collections=[
@@ -190,6 +193,7 @@ async def get_collection_objects(
     limit: int = Query(default=20, ge=1, le=1000),
     next_cursor: str | None = Query(default=None, alias="next"),
     configs: CollectionsRepository = Depends(get_active_collections),
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(
@@ -213,7 +217,7 @@ async def get_collection_objects(
             ).model_dump(exclude_none=True),
         )
 
-    can_read, _ = _get_effective_permissions(user.roles, ROLE_CONFIGS)
+    can_read, _ = _get_effective_permissions(user.roles, platform_config.roles)
     if config.bucket_name not in can_read:
         return JSONResponse(
             status_code=403,
@@ -270,6 +274,7 @@ async def add_collection_objects(
     user: CurrentUserDep,
     repo: BucketRepoDep,
     configs: CollectionsRepository = Depends(get_active_collections),
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(
@@ -293,7 +298,7 @@ async def add_collection_objects(
             ).model_dump(exclude_none=True),
         )
 
-    _, can_write = _get_effective_permissions(user.roles, ROLE_CONFIGS)
+    _, can_write = _get_effective_permissions(user.roles, platform_config.roles)
     if config.bucket_name not in can_write:
         return JSONResponse(
             status_code=403,
