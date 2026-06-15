@@ -41,6 +41,7 @@ _DEFAULT_COLLECTION = CollectionConfig(
     bucket_name="Example collection",
 )
 
+
 def make_app(repo: BucketRepository) -> FastAPI:
     app = FastAPI()
     app.include_router(taxii2_router)
@@ -52,6 +53,7 @@ def make_app(repo: BucketRepository) -> FastAPI:
     app.dependency_overrides[get_current_user] = lambda: _TEST_USER
     app.state.active_collections = {COLLECTION_ID: _DEFAULT_COLLECTION}
     return app
+
 
 async def _repo_with_bucket(name: str, n_entities: int = 0) -> InMemoryBucketRepository:
     repo = InMemoryBucketRepository()

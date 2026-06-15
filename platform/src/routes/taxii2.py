@@ -41,8 +41,7 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 def _get_effective_permissions(
-    user_roles: list[str],
-    role_configs: list[RoleConfig]
+    user_roles: list[str], role_configs: list[RoleConfig]
 ) -> tuple[set[str], set[str]]:
     can_read: set[str] = set()
     can_write: set[str] = set()
@@ -158,7 +157,7 @@ def taxii_root(_: CurrentUserDep) -> TaxiiRootResponseModel:
 def taxii_collections_root(
     user: CurrentUserDep,
     configs: CollectionsRepository = Depends(get_active_collections),
-    platform_config: PlatformConfig = Depends(get_platform_config)
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> TaxiiCollectionsRootResponseModel:
     can_read, can_write = _get_effective_permissions(user.roles, platform_config.roles)
     accessible = can_read | can_write
@@ -194,7 +193,7 @@ async def get_collection_objects(
     limit: int = Query(default=20, ge=1, le=1000),
     next_cursor: str | None = Query(default=None, alias="next"),
     configs: CollectionsRepository = Depends(get_active_collections),
-    platform_config: PlatformConfig = Depends(get_platform_config)
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(
@@ -275,7 +274,7 @@ async def add_collection_objects(
     user: CurrentUserDep,
     repo: BucketRepoDep,
     configs: CollectionsRepository = Depends(get_active_collections),
-    platform_config: PlatformConfig = Depends(get_platform_config)
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> JSONResponse:
     if collection_id not in configs:
         return JSONResponse(

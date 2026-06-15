@@ -28,6 +28,7 @@ class RoleConfig(BaseModel):
     can_read: list[str]
     can_write: list[str]
 
+
 class CollectionConfig(BaseModel):
     id: str
     title: str

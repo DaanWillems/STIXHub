@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+
 def load_platform_config() -> PlatformConfig:
     config_path = Path(settings.PLATFORM_CONFIG)
     try:

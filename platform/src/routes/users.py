@@ -8,7 +8,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 
 from dependencies import get_platform_config, get_user_repo, require_admin
-from models.domain import PlatformConfig, User, UserCreate, UserCreateResponse, UserPatch, UserResponse
+from models.domain import (
+    PlatformConfig,
+    User,
+    UserCreate,
+    UserCreateResponse,
+    UserPatch,
+    UserResponse,
+)
 from repositories.user import UserRepository
 
 users_router = APIRouter(prefix="/users", tags=["Users"])
@@ -22,7 +29,7 @@ async def create_user(
     _: AdminDep,
     body: UserCreate,
     repo: UserRepoDep,
-    platform_config: PlatformConfig = Depends(get_platform_config)
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> UserCreateResponse:
     for role in body.roles:
         if role not in [role.name for role in platform_config.roles]:
@@ -71,7 +78,7 @@ async def patch_user(
     _: AdminDep,
     body: UserPatch,
     repo: UserRepoDep,
-    platform_config: PlatformConfig = Depends(get_platform_config)
+    platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> UserResponse:
     for role in body.roles:
         if role not in [role.name for role in platform_config.roles]:

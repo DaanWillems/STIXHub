@@ -79,9 +79,6 @@ async def test_create_user_unknown_role_returns_422(
     assert response.status_code == 422
 
 
-# --- List users ---
-
-
 async def test_list_users_returns_empty_list(repo: InMemoryUserRepository) -> None:
     async with AsyncClient(
         transport=ASGITransport(app=make_app(repo)), base_url="http://test"

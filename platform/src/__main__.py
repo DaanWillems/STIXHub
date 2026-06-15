@@ -15,6 +15,7 @@ from routes.taxii2 import (
 )
 from routes.users import users_router
 
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     platform_config = load_platform_config()
