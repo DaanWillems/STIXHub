@@ -42,5 +42,4 @@ jobs:
         run: pip install -e ".[dev]" --quiet
         working-directory: platform
       - name: Run tests
-        run: pytest --tb=short
-        working-directory: platform
+        run: pytest platform --tb=short
