@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
 
-from server.config import load_platform_config
+from app.config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 

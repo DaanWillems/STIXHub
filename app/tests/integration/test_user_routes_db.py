@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator
 
-from server.config import load_platform_config
+from app.config import load_platform_config
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.dependencies import get_user_repo, require_admin
-from server.models.data import UserModel
+from database.models import UserModel
 from server.repositories.user import DatabaseUserRepository
 from server.routes.users import users_router
 

@@ -4,8 +4,8 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 
 import uvicorn
-from server.config import load_platform_config, settings
-from server.database import db
+from config import load_platform_config, settings
+from database.database import db
 from server.repositories.bucket import DatabaseBucketRepository
 from server.routes.taxii2 import (
     provision_buckets,

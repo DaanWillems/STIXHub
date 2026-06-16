@@ -156,13 +156,6 @@ class TaxiiWriteStatusModel(BaseModel):
     failures: list[TaxiiStatusRef] = Field(default_factory=list)
     pendings: list[TaxiiStatusRef] = Field(default_factory=list)
 
-
-@dataclass
-class CollectionConfig:
-    taxii_collection: TaxiiCollectionModel
-    bucket_name: str
-
-
 @dataclass
 class RoleConfig:
     name: str

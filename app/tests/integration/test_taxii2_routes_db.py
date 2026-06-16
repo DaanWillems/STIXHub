@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from server.config import load_platform_config, settings
+from app.config import load_platform_config, settings
 from server.dependencies import get_bucket_repo, get_user_repo
 from server.models.domain import Bucket, StixEntity, TaxiiCollectionModel
 from server.models.domain import CollectionConfig

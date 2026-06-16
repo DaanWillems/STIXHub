@@ -5,8 +5,8 @@
             "name": "STIXHub: uvicorn",
             "type": "debugpy",
             "request": "launch",
-            "module": "src",
-            "cwd": "${workspaceFolder}/platform/",
+            "module": "server",
+            "cwd": "${workspaceFolder}/app/",
             "env": {
                 "STIX_HUB_DATABASE_HOST": "localhost",
                 "STIX_HUB_DATABASE_PORT": "5432",

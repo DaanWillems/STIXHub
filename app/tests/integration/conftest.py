@@ -3,7 +3,7 @@ from server.repositories.user import DatabaseUserRepository
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from server.models.data import Base
+from database.models import Base
 from server.repositories.bucket import DatabaseBucketRepository
 
 

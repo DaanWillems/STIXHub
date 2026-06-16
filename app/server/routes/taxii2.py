@@ -164,11 +164,11 @@ def taxii_collections_root(
     return TaxiiCollectionsRootResponseModel(
         collections=[
             TaxiiCollectionModel(
-                id=c.taxii_collection.id,
-                title=c.taxii_collection.title,
-                description=c.taxii_collection.description,
-                can_read=c.taxii_collection.can_read,
-                can_write=c.taxii_collection.can_write,
+                id=c.id,
+                title=c.title,
+                description=c.description,
+                can_read=c.can_read,
+                can_write=c.can_write,
             )
             for c in configs.values()
             if c.bucket_name in accessible
@@ -288,7 +288,7 @@ async def add_collection_objects(
 
     config = configs[collection_id]
 
-    if not config.taxii_collection.can_write:
+    if not config.can_write:
         return JSONResponse(
             status_code=403,
             content=TaxiiErrorModel(
