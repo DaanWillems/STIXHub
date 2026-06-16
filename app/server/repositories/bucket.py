@@ -50,6 +50,11 @@ class BucketRepository(ABC):
     ) -> Bucket: ...
 
     @abstractmethod
+    async def update_entities(
+        self, bucket_id: int, entities_in: list[StixEntity]
+    ) -> Bucket: ...
+
+    @abstractmethod
     async def delete(self, bucket_id: int) -> None: ...
 
     @abstractmethod
@@ -110,6 +115,17 @@ class InMemoryBucketRepository(BucketRepository):
     ) -> Bucket:
         bucket, entities = self._store[bucket_id]
         self._store[bucket_id] = (bucket, entities + entities_in)
+        return bucket
+
+    async def update_entities(
+        self, bucket_id: int, entities_in: list[StixEntity]
+    ) -> Bucket:
+        bucket, entities = self._store[bucket_id]
+        updates = {entity.id: entity for entity in entities_in}
+        self._store[bucket_id] = (
+            bucket,
+            [updates.get(entity.id, entity) for entity in entities],
+        )
         return bucket
 
     async def delete(self, bucket_id: int) -> None:
@@ -204,6 +220,37 @@ class DatabaseBucketRepository(BucketRepository):
                 other_stix_ids=entity.other_stix_ids,
             )
             self._session.add(model)
+        await self._session.flush()
+        return await self.get(bucket_id=bucket_id)
+
+    async def update_entities(
+        self, bucket_id: int, entities_in: list[StixEntity]
+    ) -> Bucket:
+        result = await self._session.execute(
+            select(BucketModel).where(BucketModel.id == bucket_id)
+        )
+        if result.scalar_one_or_none() is None:
+            raise ValueError(f"Bucket with id {bucket_id} does not exist")
+
+        for entity in entities_in:
+            await self._session.execute(
+                update(StixEntityModel)
+                .where(
+                    StixEntityModel.id == entity.id,
+                    StixEntityModel.bucket_id == bucket_id,
+                )
+                .values(
+                    stix_id=entity.stix_id,
+                    type=entity.type,
+                    spec_version=entity.spec_version,
+                    creator=entity.creator,
+                    value=entity.value,
+                    platform_modified=entity.platform_modified,
+                    status=entity.status.value,
+                    object=entity.object,
+                    other_stix_ids=entity.other_stix_ids,
+                )
+            )
         await self._session.flush()
         return await self.get(bucket_id=bucket_id)
 

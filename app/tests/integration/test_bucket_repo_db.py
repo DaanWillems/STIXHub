@@ -80,6 +80,58 @@ async def test_add_entities_raises_when_bucket_not_found(
         await bucket_repo.add_entities(999999, [make_entity(999999)])
 
 
+async def test_update_entities(bucket_repo: DatabaseBucketRepository):
+    bucket = await bucket_repo.save(Bucket(name="test-bucket"))
+    await bucket_repo.add_entities(
+        bucket.id,
+        [
+            make_entity(bucket.id, "indicator--1"),
+            make_entity(bucket.id, "indicator--2"),
+        ],
+    )
+    stored = await bucket_repo.get_entities(bucket_id=bucket.id)
+    to_update = next(e for e in stored if e.stix_id == "indicator--1")
+    untouched = next(e for e in stored if e.stix_id == "indicator--2")
+    to_update.status = ProcessingStatus.processed
+    to_update.type = "test"
+    to_update.object = {"id": to_update.stix_id, "type": "test"}
+
+    await bucket_repo.update_entities(bucket.id, [to_update])
+
+    refreshed = await bucket_repo.get_entities(bucket_id=bucket.id)
+    updated = next(e for e in refreshed if e.stix_id == "indicator--1")
+    still_untouched = next(e for e in refreshed if e.stix_id == "indicator--2")
+    assert updated.status == ProcessingStatus.processed
+    assert updated.type == "test"
+    assert updated.object == {"id": "indicator--1", "type": "test"}
+    assert still_untouched.status == untouched.status
+    assert still_untouched.type == untouched.type
+
+
+async def test_update_entities_raises_when_bucket_not_found(
+    bucket_repo: DatabaseBucketRepository,
+):
+    with pytest.raises(ValueError):
+        await bucket_repo.update_entities(999999, [make_entity(999999)])
+
+
+async def test_update_entities_ignores_unknown_entity_id(
+    bucket_repo: DatabaseBucketRepository,
+):
+    bucket = await bucket_repo.save(Bucket(name="test-bucket"))
+    await bucket_repo.add_entities(bucket.id, [make_entity(bucket.id, "indicator--1")])
+    stored = await bucket_repo.get_entities(bucket_id=bucket.id)
+
+    unknown = make_entity(bucket.id, "indicator--missing")
+    unknown.id = 999999
+    await bucket_repo.update_entities(bucket.id, [unknown])
+
+    refreshed = await bucket_repo.get_entities(bucket_id=bucket.id)
+    assert len(refreshed) == 1
+    assert refreshed[0].status == stored[0].status
+    assert refreshed[0].type == stored[0].type
+
+
 async def test_get_entities_by_bucket_name(bucket_repo: DatabaseBucketRepository):
     bucket = await bucket_repo.save(Bucket(name="test-bucket"))
     await bucket_repo.add_entities(bucket.id, [make_entity(bucket.id)])

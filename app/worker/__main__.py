@@ -20,7 +20,7 @@ class Worker:
             for e in entities:
                 e.type = "test"
                 e.status = ProcessingStatus.processed
-            repo.add_entities(entities_in=entities)
+            await repo.update_entities(bucket.id, entities)
         pass
 
 
