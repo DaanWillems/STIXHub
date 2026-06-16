@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from app.config import load_platform_config
+from config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -31,13 +31,11 @@ COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
 _DEFAULT_COLLECTION = CollectionConfig(
-    taxii_collection=TaxiiCollectionModel(
-        id=COLLECTION_ID,
-        title="Example collection",
-        description="test",
-        can_read=True,
-        can_write=True,
-    ),
+    id=COLLECTION_ID,
+    title="Example collection",
+    description="test",
+    can_read=True,
+    can_write=True,
     bucket_name="Example collection",
 )
 
@@ -114,13 +112,11 @@ async def test_unreadable_collection_returns_403(
     def get_unreadable_collections() -> dict:  # type: ignore[type-arg]
         return {
             unreadable_id: CollectionConfig(
-                taxii_collection=TaxiiCollectionModel(
-                    id=unreadable_id,
-                    title="Example collection",
-                    description="test",
-                    can_read=False,
-                    can_write=True,
-                ),
+                id=unreadable_id,
+                title="Example collection",
+                description="test",
+                can_read=False,
+                can_write=True,
                 bucket_name="Example collection",
             )
         }
@@ -280,13 +276,11 @@ async def test_write_non_writable_collection_returns_403(
     def get_readonly() -> dict:  # type: ignore[type-arg]
         return {
             readonly_id: CollectionConfig(
-                taxii_collection=TaxiiCollectionModel(
-                    id=readonly_id,
-                    title="Example collection",
-                    description="test",
-                    can_read=True,
-                    can_write=False,
-                ),
+                id=readonly_id,
+                title="Example collection",
+                description="test",
+                can_read=True,
+                can_write=False,
                 bucket_name="Example collection",
             )
         }

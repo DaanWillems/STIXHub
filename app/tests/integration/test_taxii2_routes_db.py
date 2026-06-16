@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.config import load_platform_config, settings
+from config import load_platform_config, settings
 from server.dependencies import get_bucket_repo, get_user_repo
 from server.models.domain import Bucket, StixEntity, TaxiiCollectionModel
 from server.models.domain import CollectionConfig
@@ -19,13 +19,11 @@ COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"
 OBJECTS_URL = f"/taxii2/root/collections/{COLLECTION_ID}/objects/"
 
 _DEFAULT_COLLECTION = CollectionConfig(
-    taxii_collection=TaxiiCollectionModel(
-        id=COLLECTION_ID,
-        title="Example collection",
-        description="test",
-        can_read=True,
-        can_write=True,
-    ),
+    id=COLLECTION_ID,
+    title="Example collection",
+    description="test",
+    can_read=True,
+    can_write=True,
     bucket_name="Example collection",
 )
 

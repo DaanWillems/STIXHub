@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator
 
-from app.config import load_platform_config
+from config import load_platform_config
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient

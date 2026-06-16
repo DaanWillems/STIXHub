@@ -207,7 +207,7 @@ async def get_collection_objects(
 
     config = configs[collection_id]
 
-    if not config.taxii_collection.can_read:
+    if not config.can_read:
         return JSONResponse(
             status_code=403,
             content=TaxiiErrorModel(
