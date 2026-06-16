@@ -1,7 +1,7 @@
 services:
   platform:
     build:
-      context: ./platform
+      context: ./app
       dockerfile: Dockerfile
     ports:
       - "8001:8000"
