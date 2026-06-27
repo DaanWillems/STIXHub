@@ -33,3 +33,18 @@ roles:
       - raw-intel
     can_write:
       - raw-intel
+
+pipelines:
+  - name: a
+    steps:
+     - action: "aa"
+       condition:
+         type: "and"
+         condition: []
+     - action: "aa"
+       condition:
+         field: "a"
+         type: "eq"
+         value: "bb"
+
+      

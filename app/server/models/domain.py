@@ -37,11 +37,42 @@ class CollectionConfig(BaseModel):
     can_write: bool
     bucket_name: str
 
+class PipelineBooleanType(str, Enum):
+    AND = "and"
+    OR = "or"
+
+class PipelineConditionType(str, Enum):
+    eq = "eq"
+    not_eq = "not_eq"
+    greater = "greater"
+    lesser = "lesser"
+    greater_or_equal = "greater_or_equal"
+    lesser_or_eqal = "lesser_or_eqal"
+    contains = "contains"
+    not_contains = "not_contains"
+
+class PipelineExpression(BaseModel):
+    field: str
+    type: PipelineConditionType
+    value: str
+
+class PipelineCondition(BaseModel):
+    type: PipelineBooleanType
+    condition: list[PipelineConditionType]
+
+class PipelineStepConfig(BaseModel):
+    condition: PipelineCondition | PipelineExpression
+    action: str
+
+class PipelineConfig(BaseModel):
+    name: str
+    steps: list[PipelineStepConfig]
 
 class PlatformConfig(BaseModel):
     buckets: list[BucketConfig]
     collections: list[CollectionConfig]
     roles: list[RoleConfig]
+    pipelines: list[PipelineConfig]
 
 
 @dataclass
