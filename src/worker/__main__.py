@@ -1,8 +1,8 @@
 
 import asyncio
 
-from server.models.domain import ProcessingStatus
-from server.repositories.bucket import DatabaseBucketRepository
+from models.domain import ProcessingStatus
+from database.repositories.bucket import DatabaseBucketRepository
 from database.database import Database, db
 
 class Worker:

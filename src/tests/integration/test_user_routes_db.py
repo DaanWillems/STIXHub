@@ -7,10 +7,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.dependencies import get_user_repo, require_admin
-from database.models import UserModel
-from server.repositories.user import DatabaseUserRepository
-from server.routes.users import users_router
+from dependencies import get_user_repo, require_admin
+from models.models import UserModel
+from database.repositories.user import DatabaseUserRepository
+from routes.users import users_router
 
 
 def make_app(repo: DatabaseUserRepository) -> FastAPI:

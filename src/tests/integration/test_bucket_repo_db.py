@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from server.models.domain import Bucket, ProcessingStatus, StixEntity
-from server.repositories.bucket import DatabaseBucketRepository
+from models.domain import Bucket, ProcessingStatus, StixEntity
+from database.repositories.bucket import DatabaseBucketRepository
 
 
 def make_entity(bucket_id: int, stix_id: str = "indicator--abc123") -> StixEntity:

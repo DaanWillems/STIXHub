@@ -7,8 +7,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from server.dependencies import get_platform_config, get_user_repo, require_admin
-from server.models.domain import (
+from dependencies import get_platform_config, get_user_repo, require_admin
+from models.domain import (
     PlatformConfig,
     User,
     UserCreate,
@@ -16,7 +16,7 @@ from server.models.domain import (
     UserPatch,
     UserResponse,
 )
-from server.repositories.user import UserRepository
+from database.repositories.user import UserRepository
 
 users_router = APIRouter(prefix="/users", tags=["Users"])
 

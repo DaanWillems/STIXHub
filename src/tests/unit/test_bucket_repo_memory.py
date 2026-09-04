@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from server.models.domain import Bucket, ProcessingStatus, StixEntity
-from server.repositories.bucket import InMemoryBucketRepository
+from models.domain import Bucket, ProcessingStatus, StixEntity
+from database.repositories.bucket import InMemoryBucketRepository
 
 
 def make_entity(

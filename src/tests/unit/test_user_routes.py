@@ -4,9 +4,9 @@ from config import load_platform_config
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from server.dependencies import get_user_repo, require_admin
-from server.repositories.user import InMemoryUserRepository, UserRepository
-from server.routes.users import users_router
+from dependencies import get_user_repo, require_admin
+from database.repositories.user import InMemoryUserRepository, UserRepository
+from routes.users import users_router
 
 from fastapi import FastAPI
 

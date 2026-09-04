@@ -1,10 +1,10 @@
 import pytest
-from server.repositories.user import DatabaseUserRepository
+from database.repositories.user import DatabaseUserRepository
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from database.models import Base
-from server.repositories.bucket import DatabaseBucketRepository
+from models.models import Base
+from database.repositories.bucket import DatabaseBucketRepository
 
 
 DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/app"

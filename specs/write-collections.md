@@ -19,24 +19,6 @@ Write collections expose a TAXII 2.1 compliant write endpoint. Submitted STIX bu
 
 ## Collection Configuration
 
-<<<<<<< HEAD
-Collections are declared in `platform_config.yaml` and mapped to buckets by name. Each collection exposes one bucket; a bucket may back multiple collections.
-
-```yaml
-collections:
-  - id: 70a16fcf-d221-4f00-b5b0-ea3b6f7c4ef5
-    title: Raw Intel Feed
-    description: Incoming threat intelligence from external sources
-    bucket: raw-intel
-    can_read: true
-    can_write: true
-```
-
-Rules:
-- `id` must be a valid UUID and unique across all declared collections.
-- `bucket` must match a declared bucket name; see [bucket-config.md](bucket-config.md) for bucket provisioning.
-- A collection whose referenced bucket is not found at startup is excluded from all API responses.
-=======
 Collections are defined in an external YAML file, not stored in the database and not hardcoded in Python. See [platform-config.md](platform-config.md) for the file format and loading mechanism.
 
 `CollectionConfig` is a pydantic `BaseModel` that holds TAXII fields plus the internal `bucket_name` routing field:
@@ -59,7 +41,6 @@ Bucket provisioning runs before collection validation. See [bucket-config.md](bu
 - Log an error
 - Exclude that collection from all API responses
 - Continue starting up (do not crash)
->>>>>>> main
 
 ## Write Endpoint
 

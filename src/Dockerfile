@@ -6,9 +6,14 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir .
 
 COPY config.py .
+COPY log.py .
+COPY dependencies.py .
 COPY database/ ./database/
 COPY server/ ./server/
 COPY worker/ ./worker/
+COPY models/ ./models/
+COPY routes/ ./routes/
+COPY processors/ ./processors/
 
 ENV PYTHONPATH=/app
 

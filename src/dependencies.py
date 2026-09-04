@@ -8,14 +8,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi import Request
 
 from config import settings
-from server.models.domain import User
-from server.models.domain import PlatformConfig
-from server.repositories.bucket import (
+from models.domain import User
+from models.domain import PlatformConfig
+from database.repositories.bucket import (
     BucketRepository,
     DatabaseBucketRepository,
     InMemoryBucketRepository,
 )
-from server.repositories.user import DatabaseUserRepository, UserRepository
+from database.repositories.user import DatabaseUserRepository, UserRepository
 from database.database import db
 
 _in_memory_bucket_repo = InMemoryBucketRepository()

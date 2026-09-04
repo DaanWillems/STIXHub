@@ -6,13 +6,13 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from config import load_platform_config, settings
-from server.dependencies import get_bucket_repo, get_user_repo
-from server.models.domain import Bucket, StixEntity, TaxiiCollectionModel
-from server.models.domain import CollectionConfig
-from server.repositories.bucket import DatabaseBucketRepository
-from server.repositories.user import DatabaseUserRepository
-from server.routes.taxii2 import taxii2_router
-from server.routes.users import users_router
+from dependencies import get_bucket_repo, get_user_repo
+from models.domain import Bucket, StixEntity, TaxiiCollectionModel
+from models.domain import CollectionConfig
+from database.repositories.bucket import DatabaseBucketRepository
+from database.repositories.user import DatabaseUserRepository
+from routes.taxii2 import taxii2_router
+from routes.users import users_router
 
 
 COLLECTION_ID = "70a16fcf-8146-2da8-be66-6ca6fb7280af"

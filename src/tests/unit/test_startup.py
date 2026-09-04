@@ -1,8 +1,8 @@
 import pytest
 
-from server.models.domain import Bucket, BucketConfig, BucketMode
-from server.repositories.bucket import InMemoryBucketRepository
-from server.routes.taxii2 import provision_buckets
+from models.domain import Bucket, BucketConfig, BucketMode
+from database.repositories.bucket import InMemoryBucketRepository
+from routes.taxii2 import provision_buckets
 
 
 async def test_provision_creates_missing_bucket() -> None:

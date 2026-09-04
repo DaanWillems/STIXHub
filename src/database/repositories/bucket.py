@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import BucketModel, StixEntityModel
-from server.models.domain import Bucket, BucketMode, ProcessingStatus, StixEntity
+from models.models import BucketModel, StixEntityModel
+from models.domain import Bucket, BucketMode, ProcessingStatus, StixEntity
 
 
 def _bucket_from_model(model: BucketModel) -> Bucket:

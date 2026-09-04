@@ -6,14 +6,14 @@ from fastapi import FastAPI
 import uvicorn
 from config import load_platform_config, settings
 from database.database import db
-from server.repositories.bucket import DatabaseBucketRepository
-from server.routes.taxii2 import (
+from database.repositories.bucket import DatabaseBucketRepository
+from routes.taxii2 import (
     provision_buckets,
     taxii2_router,
     validate_collections,
     validate_roles,
 )
-from server.routes.users import users_router
+from routes.users import users_router
 
 
 @contextlib.asynccontextmanager
