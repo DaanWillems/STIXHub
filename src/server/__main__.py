@@ -49,7 +49,3 @@ app = create_app()
 @app.get("/")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-if __name__ == "__main__":
-    uvicorn.run("server.__main__:app")

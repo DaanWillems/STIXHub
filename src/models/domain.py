@@ -66,6 +66,8 @@ class PipelineStepConfig(BaseModel):
 
 class PipelineConfig(BaseModel):
     name: str
+    sources: list[str]
+    sinks: list[str]
     steps: list[PipelineStepConfig]
 
 class PlatformConfig(BaseModel):

@@ -33,7 +33,7 @@ class BucketRepository(ABC):
     async def save(self, bucket_in: Bucket) -> Bucket: ...
 
     @abstractmethod
-    async def get(self, bucket_id: int = None, bucket_name: str = None) -> Bucket: ...
+    async def get(self, bucket_id: int = None, bucket_name: str = None) -> Bucket | None: ...
 
     @abstractmethod
     async def get_entities(
@@ -75,16 +75,16 @@ class InMemoryBucketRepository(BucketRepository):
         self._store[bucket_in.id] = (bucket_in, [])
         return bucket_in
 
-    async def get(self, bucket_id: int = None, bucket_name: str = None) -> Bucket:
+    async def get(self, bucket_id: int = None, bucket_name: str = None) -> Bucket | None:
         if bucket_name is None and bucket_id is not None:
-            return self._store[bucket_id][0]
+            entry = self._store.get(bucket_id)
+            return entry[0] if entry is not None else None
         if bucket_name is not None and bucket_id is None:
             for _, v in self._store.items():
                 if v[0].name == bucket_name:
                     return v[0]
-        else:
-            raise Exception("Cannot filter on both id and name at the same time")
-        return None
+            return None
+        raise Exception("Cannot filter on both id and name at the same time")
 
     async def get_entities(
         self,
@@ -158,19 +158,19 @@ class DatabaseBucketRepository(BucketRepository):
         await self._session.refresh(model)
         return _bucket_from_model(model)
 
-    async def get(self, bucket_id: int = None, bucket_name: str = None) -> Bucket:
+    async def get(self, bucket_id: int = None, bucket_name: str = None) -> Bucket | None:
         if bucket_id is not None and bucket_name is None:
             result = await self._session.execute(
                 select(BucketModel).where(BucketModel.id == bucket_id)
             )
-            model = result.scalar_one()
-            return _bucket_from_model(model)
+            model = result.scalar_one_or_none()
+            return _bucket_from_model(model) if model is not None else None
         if bucket_name is not None and bucket_id is None:
             result = await self._session.execute(
                 select(BucketModel).where(BucketModel.name == bucket_name)
             )
-            model = result.scalar_one()
-            return _bucket_from_model(model)
+            model = result.scalar_one_or_none()
+            return _bucket_from_model(model) if model is not None else None
         raise ValueError("Provide exactly one of bucket_id or bucket_name")
 
     async def get_entities(

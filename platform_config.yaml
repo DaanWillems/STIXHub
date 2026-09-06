@@ -36,6 +36,12 @@ roles:
 
 pipelines:
   - name: a
+    sources:
+      - "a"
+      - "b"
+    sinks:
+      - "a"
+      - "b"
     steps:
      - action: "aa"
        condition:
