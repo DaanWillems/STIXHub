@@ -5,8 +5,9 @@
             "name": "STIXHub: uvicorn",
             "type": "debugpy",
             "request": "launch",
-            "module": "server",
-            "cwd": "${workspaceFolder}/app/",
+            "module": "src",
+            "cwd": "${workspaceFolder}/",
+            "args": ["--mode", "server-worker"],
             "env": {
                 "STIX_HUB_DATABASE_HOST": "localhost",
                 "STIX_HUB_DATABASE_PORT": "5432",
@@ -16,8 +17,9 @@
                 "STIX_HUB_DATABASE_USE_NULLPOOL": "false",
                 "STIX_HUB_DATABASE_ENGINE_ECHO": "true",
                 "STIX_HUB_BUCKET_REPO_BACKEND": "database",
-                "STIX_HUB_PLATFORM_CONFIG": "../platform_config.yaml",
-                "STIX_HUB_ADMIN_API_KEY": "aa"
+                "STIX_HUB_PLATFORM_CONFIG": "./platform_config.yaml",
+                "STIX_HUB_ADMIN_API_KEY": "aa",
+                "PYTHONPATH": "${workspaceFolder}/src",
             }
         }
     ]

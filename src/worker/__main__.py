@@ -5,10 +5,12 @@ from config import load_platform_config
 from models.domain import ProcessingStatus
 from database.repositories.bucket import DatabaseBucketRepository
 from database.database import Database, db
+from pipeline.pipeline_manager import PipelineManager
 
 class Worker:
     def __init__(self):
         self.config = load_platform_config()
+        self.pipeline_manager = PipelineManager(platform_config=self.config)
 
     async def run(self):
         #for each pipeline

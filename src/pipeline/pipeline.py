@@ -1,11 +1,17 @@
 import logging
 from enum import Enum
-from typing import Any, Dict
-
-import yaml
+from typing import Any
 
 from database.repositories.bucket import BucketRepository
-from models.domain import StixEntity
+from models.domain import (
+    PipelineBooleanType,
+    PipelineCondition as DomainPipelineCondition,
+    PipelineConditionType,
+    PipelineConfig,
+    PipelineExpression,
+    PipelineStepConfig as PipelineStepConfigModel,
+    StixEntity,
+)
 from models.models import StixType
 
 
@@ -104,7 +110,7 @@ class PipelineAddAction(PipelineAction):
 class PipelineExecutor:
     """Executes data processing pipelines defined in YAML"""
 
-    def __init__(self, yaml_path: str):
+    def __init__(self, pipeline_definition: PipelineConfig):
         self.actions = {
             Action.Replace: PipelineReplaceAction(),
             Action.Delete: PipelineDeleteAction(),
@@ -131,112 +137,58 @@ class PipelineExecutor:
             ],
         }
 
-        self.yaml_path = yaml_path
-        self.pipeline_definition: Dict[Any, Any] = None
-
-        self._load_pipeline()
+        self.pipeline_definition: PipelineConfig = pipeline_definition
         self._validate_pipeline()
-
-        self.merge_strategy = self.pipeline_definition.get("merge_strategy", "")
-        self.output_name = self.pipeline_definition.get("output_name", "Default")
-        self.max_tlp = self.pipeline_definition.get("max_tlp", None)  # TODO: Validate
 
         self.reference_cache: dict = {}
 
-    def _load_pipeline(self):
-        """Load pipeline definition from YAML file or use default."""
-        if self.yaml_path and self.yaml_path.strip():
-            try:
-                with open(self.yaml_path, "r") as f:
-                    self.pipeline_definition = yaml.safe_load(f)
-            except FileNotFoundError:
-                logger.error(
-                    f"Pipeline YAML file not found: {self.yaml_path}, using default"
-                )
-            except yaml.YAMLError as e:
-                logger.error(
-                    f"Error parsing YAML file {self.yaml_path}: {e}, using default"
-                )
+    def _validate_condition(
+        self, condition: DomainPipelineCondition | PipelineExpression
+    ) -> type:
+        if isinstance(condition, DomainPipelineCondition):
+            for c in condition.condition:
+                result = self._validate_condition(c)
+                if result is not bool:
+                    raise PipelineValidationError(
+                        f"Sub expression of the AND / OR filter must evaluate to boolean. {condition}"
+                    )
+            return bool
+        # PipelineExpression
+        if not isinstance(condition.value, (int, str)):
+            raise PipelineValidationError()
+        return bool
 
-    def _validate_condition(self, condition: dict) -> PipelineCondition:
-        match PipelineCondition(condition.get("type", "invalid")):
-            case PipelineCondition.AND | PipelineCondition.OR:
-                for c in condition.get("condition", []):
-                    result = self._validate_condition(c)
-                    if result is not bool:
-                        raise PipelineValidationError(
-                            f"Sub expression of the AND / OR filter must evaluate to boolean. {condition}"
-                        )
-                return bool
-            case (
-                PipelineCondition.EQ
-                | PipelineCondition.NOT_EQ
-                | PipelineCondition.LESS_EQUAL
-                | PipelineCondition.MORE_EQUAL
-            ):
-                if type(condition["value"]) not in [int, str]:
-                    raise PipelineValidationError()
-                return bool
-            case PipelineCondition.IN:
-                return bool
-            case _:
-                pass
-
-    def _evaluate_condition(self, object: dict, condition: dict) -> bool:
+    def _evaluate_condition(
+        self,
+        object: dict,
+        condition: DomainPipelineCondition | PipelineExpression | None,
+    ) -> bool:
         if condition is None:
             return True
-        match PipelineCondition(condition.get("type", "invalid")):
-            case PipelineCondition.AND:
+        if isinstance(condition, DomainPipelineCondition):
+            if condition.type == PipelineBooleanType.AND:
                 return all(
-                    [
-                        self._evaluate_condition(object, c)
-                        for c in condition.get("condition", [])
-                    ]
+                    self._evaluate_condition(object, c) for c in condition.condition
                 )
-            case PipelineCondition.OR:
-                return any(
-                    [
-                        self._evaluate_condition(object, c)
-                        for c in condition.get("condition", [])
-                    ]
-                )
-            case PipelineCondition.EQ:
-                return object.get(condition["field"], None) == condition["value"]
-            case PipelineCondition.IN:
-                return condition["value"] in object.get(condition["field"], "")
+            return any(
+                self._evaluate_condition(object, c) for c in condition.condition
+            )
+        # PipelineExpression
+        match condition.type:
+            case PipelineConditionType.eq:
+                return object.get(condition.field) == condition.value
+            case PipelineConditionType.not_eq:
+                return object.get(condition.field) != condition.value
+            case PipelineConditionType.contains:
+                return condition.value in object.get(condition.field, "")
+            case PipelineConditionType.not_contains:
+                return condition.value not in object.get(condition.field, "")
             case _:
-                pass
+                return False
 
-    def _validate_pipeline(self):
-        if (
-            self.pipeline_definition.get("merge_strategy", "")
-            not in self.valid_merge_strategies
-        ):
-            raise PipelineValidationError("Invalid merge strategy")
-
-        scope = self.pipeline_definition.get("scope", "").lower().split(",")
-
-        for type in scope:
-            try:
-                StixType(type)
-            except ValueError:
-                raise PipelineValidationError(
-                    f"Scope contains invalid STIX 2.1 type: {type}"
-                )
-
-        for step in self.pipeline_definition.get("steps", []):
-            if Action(step.get("action", "")) not in self.valid_field_actions.get(
-                step.get("field", ""), []
-            ):
-                raise PipelineValidationError(
-                    f"Action {step.get('action', '')} is not allowed on field {step.get('field', '')}"
-                )
-
-            # Validate condition
-            conditions = step.get("condition", None)
-            if conditions is None:
-                continue
-            self._validate_condition(conditions)
+    def _validate_pipeline(self) -> None:
+        for step in self.pipeline_definition.steps:
+            self._validate_condition(step.condition)
 
     def _transform_refs_to_values(
         self: "PipelineExecutor", object: StixEntity, repo: BucketRepository
@@ -335,15 +287,13 @@ class PipelineExecutor:
         for obj in objects:
             obj = self._transform_refs_to_values(obj, repo)
 
-            for step in self.pipeline_definition.get("steps", []):
+            for step in self.pipeline_definition.steps:
                 if not self._evaluate_condition(
-                    object=obj.object, condition=step.get("condition", None)
+                    object=obj.object, condition=step.condition
                 ):
                     continue
                 audit_actions.append(
-                    self.actions[Action(step.get("action"))].execute(
-                        object=obj, field=step["field"], value=step["value"]
-                    )
+                    self.actions[Action(step.action)].execute(object=obj)
                 )
 
             processed_objects.append(self._transform_values_to_refs(obj, repo))
