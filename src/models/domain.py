@@ -61,8 +61,10 @@ class PipelineCondition(BaseModel):
     condition: list[PipelineConditionType]
 
 class PipelineStepConfig(BaseModel):
-    condition: PipelineCondition | PipelineExpression
     action: str
+    field: str
+    value: str
+    condition: PipelineCondition | PipelineExpression | None = None
 
 class PipelineConfig(BaseModel):
     name: str

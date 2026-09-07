@@ -14,8 +14,8 @@ class Worker:
 
     async def run(self):
         #for each pipeline
-        for p in self.config.pipelines:
-            for source in p.sources:
+        for p in self.pipeline_manager.pipelines():
+            for source in p.pipeline_definition.sources:
                 #take 10 entities and process
                 async with db.get_session() as session:
                     repo = DatabaseBucketRepository(session=session)
@@ -23,8 +23,11 @@ class Worker:
                     if bucket is None:
                         print("tried reading from bucket that does not exist")
                         continue
-                    entities = await repo.acquire_entities(bucket.id, 100)
+                    entities = await repo.acquire_entities(bucket.id, 10)
                     print(f"got entities! {entities}")
+
+                    new_entities = [p.execute_pipeline(objects=[e], repo=repo) for e in entities]
+
                     for e in entities:
                         e.type = "test"
                         e.status = ProcessingStatus.processed

@@ -7,7 +7,7 @@
             "request": "launch",
             "module": "src",
             "cwd": "${workspaceFolder}/",
-            "args": ["--mode", "server-worker"],
+            "args": ["--mode", "worker"],
             "env": {
                 "STIX_HUB_DATABASE_HOST": "localhost",
                 "STIX_HUB_DATABASE_PORT": "5432",

@@ -188,6 +188,12 @@ class PipelineExecutor:
 
     def _validate_pipeline(self) -> None:
         for step in self.pipeline_definition.steps:
+            if Action(step.action) not in self.valid_field_actions.get(step.field, []):
+                raise PipelineValidationError(
+                    f"Action {step.action} is not allowed on field {step.field}"
+                )
+            if step.condition is None:
+                continue
             self._validate_condition(step.condition)
 
     def _transform_refs_to_values(
@@ -279,7 +285,7 @@ class PipelineExecutor:
         return object
 
     def execute_pipeline(
-        self, stix_id: str, stix_type: StixType, objects: list[StixEntity], repo: BucketRepository
+        self, objects: list[StixEntity], repo: BucketRepository
     ) -> list[StixEntity]:
         audit_actions = []
         processed_objects = []
@@ -293,7 +299,9 @@ class PipelineExecutor:
                 ):
                     continue
                 audit_actions.append(
-                    self.actions[Action(step.action)].execute(object=obj)
+                    self.actions[Action(step.action)].execute(
+                        object=obj, field=step.field, value=step.value
+                    )
                 )
 
             processed_objects.append(self._transform_values_to_refs(obj, repo))

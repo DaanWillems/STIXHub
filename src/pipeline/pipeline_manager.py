@@ -21,6 +21,9 @@ class PipelineManager:
         self._merge_strategies = [MostRecentDeduplicated()]
         self._load_pipelines()
 
+    def pipelines(self) -> List[PipelineExecutor]:
+        return self._pipelines
+
     def _load_pipelines(self):
         for pipeline in self.platform_config.pipelines:
             try:
