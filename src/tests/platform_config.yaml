@@ -1,7 +1,7 @@
 buckets:
   - name: raw-intel
     mode: append
-  - name: refined-intel
+  - name: Example collection 3
     mode: merge
 
 collections:
@@ -31,26 +31,17 @@ roles:
   - name: admin
     can_read:
       - raw-intel
-      - refined-intel
     can_write:
       - raw-intel
 
 pipelines:
   - name: a
-    sources:
-      - "raw-intel"
-    sinks:
-      - "refined-intel"
     steps:
-     - action: "add"
-       field: "labels"
-       value: "test"
+     - action: "aa"
        condition:
          type: "and"
          condition: []
-     - action: "add"
-       field: "labels"
-       value: "test"
+     - action: "aa"
        condition:
          field: "a"
          type: "eq"
