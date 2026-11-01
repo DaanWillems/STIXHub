@@ -1156,6 +1156,7 @@ source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1165,7 +1166,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1179,7 +1179,7 @@ dev = [
 requires-dist = [
     { name = "asyncpg" },
     { name = "fastapi", extras = ["standard"] },
-    { name = "httpx", marker = "extra == 'dev'" },
+    { name = "httpx" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary"] },
     { name = "pydantic" },

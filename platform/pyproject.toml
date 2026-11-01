@@ -16,7 +16,8 @@ dependencies = [
     "psycopg[binary]",
     "asyncpg",
     "uvicorn",
-    "pyyaml"
+    "pyyaml",
+    "httpx"
 ]
 
 [project.optional-dependencies]
@@ -27,7 +28,6 @@ dev = [
     "pytest-env",
     "pytest-cov",
     "pytest-asyncio",
-    "httpx",
     "types-PyYAML"
 ]
 
