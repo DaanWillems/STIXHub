@@ -16,9 +16,15 @@ from repositories.bucket import (
     DatabaseBucketRepository,
     InMemoryBucketRepository,
 )
+from repositories.collector import (
+    CollectorRepository,
+    DatabaseCollectorRepository,
+    InMemoryCollectorRepository,
+)
 from repositories.user import DatabaseUserRepository, UserRepository
 
 _in_memory_bucket_repo = InMemoryBucketRepository()
+_in_memory_collector_repo = InMemoryCollectorRepository()
 _bearer = HTTPBearer(auto_error=False)
 
 _CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
@@ -30,6 +36,14 @@ async def get_bucket_repo() -> AsyncGenerator[BucketRepository, None]:
     else:
         async with db.get_session() as session:
             yield DatabaseBucketRepository(session)
+
+
+async def get_collector_repo() -> AsyncGenerator[CollectorRepository, None]:
+    if settings.BUCKET_REPO_BACKEND == "memory":
+        yield _in_memory_collector_repo
+    else:
+        async with db.get_session() as session:
+            yield DatabaseCollectorRepository(session)
 
 
 async def get_user_repo() -> AsyncGenerator[UserRepository, None]:

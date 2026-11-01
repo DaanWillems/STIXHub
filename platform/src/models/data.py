@@ -127,6 +127,19 @@ class StixEntityModel(Base):
     )
 
 
+class CollectorModel(Base):
+    __tablename__ = "collector_model"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(unique=True, nullable=False)
+    bucket_id: Mapped[int] = mapped_column(
+        ForeignKey("bucket_model.id"), nullable=False
+    )
+    cursor: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class UserModel(Base):
     __tablename__ = "user_model"
     id: Mapped[uuid_module.UUID] = mapped_column(

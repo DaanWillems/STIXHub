@@ -79,6 +79,14 @@ class StixEntity:
     other_stix_ids: list[str] = field(default_factory=list)
 
 
+@dataclass
+class Collector:
+    id: int
+    name: str
+    bucket_id: int
+    cursor: str | None = None
+
+
 class TaxiiCollectionMediaTypes(str, Enum):
     STIX_JSON_2_1 = "application/stix+json;version=2.1"
 
