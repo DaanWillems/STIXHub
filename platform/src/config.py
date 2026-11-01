@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     BUCKET_REPO_BACKEND: Literal["memory", "database"] = "database"
     ADMIN_API_KEY: str
     PLATFORM_CONFIG: str = "platform_config.yaml"
+    # Base URL collectors use to reach this platform's own REST API.
+    PLATFORM_INTERNAL_URL: str = "http://127.0.0.1:8000"
 
 
 settings = Settings()

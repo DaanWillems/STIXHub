@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt
 
 
 class ProcessingStatus(str, Enum):
@@ -38,10 +38,22 @@ class CollectionConfig(BaseModel):
     bucket_name: str
 
 
+class CollectorConfig(BaseModel):
+    name: str = Field(min_length=1)
+    remote_url: str
+    remote_collection_id: str
+    credentials_env: str | None = None
+    target_bucket: str
+    poll_interval: PositiveFloat = 300
+    max_retries: PositiveInt = 3
+    shutdown_timeout: PositiveFloat = 30
+
+
 class PlatformConfig(BaseModel):
     buckets: list[BucketConfig]
     collections: list[CollectionConfig]
     roles: list[RoleConfig]
+    collectors: list[CollectorConfig] = Field(default_factory=list)
 
 
 @dataclass

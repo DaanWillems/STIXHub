@@ -19,6 +19,19 @@ collections:
     can_write: true
     bucket_name: raw-intel
 
+# Collectors periodically pull from a remote TAXII 2.1 collection into a bucket.
+# remote_url is the TAXII API root. Credentials are never stored here: with
+# credentials_env: "MITRE_TAXII" the collector reads MITRE_TAXII_USER and
+# MITRE_TAXII_PASS from the environment. Omit credentials_env for open feeds.
+collectors: []
+#  - name: mitre-attack
+#    remote_url: https://attack-taxii.mitre.org/api/v21/
+#    remote_collection_id: x-mitre-collection--1f5f1533-f617-4ca8-9ab4-6a02367fa019
+#    target_bucket: raw-intel
+#    poll_interval: 300     # seconds, default 300
+#    max_retries: 3         # default 3
+#    shutdown_timeout: 30   # seconds, default 30
+
 roles:
   - name: analyst
     can_read:
