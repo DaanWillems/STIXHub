@@ -1,9 +1,11 @@
+import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 
 import uvicorn
+from collectors.runner import create_runner
 from collectors.validation import validate_collectors
 from config import load_platform_config, settings
 from database import db
@@ -35,8 +37,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             )
     else:
         app.state.active_collections = {}
-    yield
-    await db.dispose()
+
+    # Collector threads register over HTTP once the server is accepting
+    # connections, so they are started last and stopped first.
+    runner = create_runner(platform_config.collectors, settings.PLATFORM_INTERNAL_URL)
+    runner.start()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(runner.stop)
+        await db.dispose()
 
 
 def create_app() -> FastAPI:
