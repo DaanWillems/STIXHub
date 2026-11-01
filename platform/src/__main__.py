@@ -8,6 +8,7 @@ from collectors.validation import validate_collectors
 from config import load_platform_config, settings
 from database import db
 from repositories.bucket import DatabaseBucketRepository
+from routes.collectors import collectors_router
 from routes.taxii2 import (
     provision_buckets,
     taxii2_router,
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     app.include_router(taxii2_router)
     app.include_router(users_router)
+    app.include_router(collectors_router)
     return app
 
 

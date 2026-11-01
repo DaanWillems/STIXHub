@@ -87,6 +87,22 @@ class Collector:
     cursor: str | None = None
 
 
+class CollectorRegisterRequest(BaseModel):
+    name: str = Field(min_length=1)
+    bucket_name: str
+
+
+class CollectorCursorUpdate(BaseModel):
+    cursor: str = Field(min_length=1)
+
+
+class CollectorResponse(BaseModel):
+    id: int
+    name: str
+    bucket_id: int
+    cursor: str | None = None
+
+
 class TaxiiCollectionMediaTypes(str, Enum):
     STIX_JSON_2_1 = "application/stix+json;version=2.1"
 
