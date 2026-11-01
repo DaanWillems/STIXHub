@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,6 +67,30 @@ def _opinion_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return v, {"value": v}
 
 
+def _relationship_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    relationship_type = raw["relationship_type"]
+    source_ref = raw["source_ref"]
+    target_ref = raw["target_ref"]
+    v = f"{source_ref} {relationship_type} {target_ref}"
+    return v, {
+        "relationship_type": relationship_type,
+        "source_ref": source_ref,
+        "target_ref": target_ref,
+    }
+
+
+# Properties holding a single STIX ID that must be rewritten to platform IDs
+# before an object is processed, keyed by STIX type.
+REF_PROPERTIES: dict[str, tuple[str, ...]] = {
+    "relationship": ("source_ref", "target_ref"),
+}
+
+
+def unresolved_refs(raw: dict[str, Any]) -> list[str]:
+    """Return the STIX IDs referenced by ``raw`` that need translating."""
+    return [raw[prop] for prop in REF_PROPERTIES.get(raw["type"], ()) if prop in raw]
+
+
 _PROCESSORS: dict[str, Any] = {
     # SCOs — contributing property per STIX 2.1 spec
     "ipv4-addr": _sco_value_processor,
@@ -90,12 +115,32 @@ _PROCESSORS: dict[str, Any] = {
     "threat-actor": _name_processor,
     "tool": _name_processor,
     "vulnerability": _name_processor,
+    # SROs — identified by the (source, type, target) triple
+    "relationship": _relationship_processor,
 }
 
 
-def process(raw: dict[str, Any]) -> ProcessedStixObject:
+def process(
+    raw: dict[str, Any], id_map: Mapping[str, str] | None = None
+) -> ProcessedStixObject:
+    """Assign ``raw`` a deterministic platform ID.
+
+    ``id_map`` maps original STIX IDs to platform IDs. Reference properties
+    (see ``REF_PROPERTIES``) are rewritten through it before the ID is
+    derived; refs missing from the map are kept unchanged.
+    """
     obj_type = raw["type"]
     original_id = raw["id"]
+
+    if id_map:
+        raw = {
+            **raw,
+            **{
+                prop: id_map.get(raw[prop], raw[prop])
+                for prop in REF_PROPERTIES.get(obj_type, ())
+                if prop in raw
+            },
+        }
 
     processor = _PROCESSORS.get(obj_type)
     if processor is None:

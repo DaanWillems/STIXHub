@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.data import BucketModel, StixEntityModel
@@ -57,6 +57,16 @@ class BucketRepository(ABC):
 
     @abstractmethod
     async def acquire_entities(self, bucket_id: int, n: int) -> list[StixEntity]: ...
+
+    @abstractmethod
+    async def resolve_stix_ids(
+        self, bucket_id: int, stix_ids: list[str]
+    ) -> dict[str, str]:
+        """Map original STIX IDs to the platform IDs stored in ``bucket_id``.
+
+        An ID matches an entity when it appears in that entity's
+        ``other_stix_ids``. IDs with no match are left out of the result.
+        """
 
 
 class InMemoryBucketRepository(BucketRepository):
@@ -129,6 +139,17 @@ class InMemoryBucketRepository(BucketRepository):
                 entity.status = ProcessingStatus.processing
                 acquired.append(entity)
         return acquired
+
+    async def resolve_stix_ids(
+        self, bucket_id: int, stix_ids: list[str]
+    ) -> dict[str, str]:
+        wanted = set(stix_ids)
+        resolved: dict[str, str] = {}
+        for entity in self._store[bucket_id][1]:
+            for other_id in entity.other_stix_ids:
+                if other_id in wanted:
+                    resolved.setdefault(other_id, entity.stix_id)
+        return resolved
 
 
 class DatabaseBucketRepository(BucketRepository):
@@ -239,3 +260,29 @@ class DatabaseBucketRepository(BucketRepository):
             model.status = ProcessingStatus.processing.value
         await self._session.flush()
         return [_entity_from_model(m) for m in models]
+
+    async def resolve_stix_ids(
+        self, bucket_id: int, stix_ids: list[str]
+    ) -> dict[str, str]:
+        wanted = set(stix_ids)
+        if not wanted:
+            return {}
+        result = await self._session.execute(
+            select(StixEntityModel.stix_id, StixEntityModel.other_stix_ids)
+            .where(
+                StixEntityModel.bucket_id == bucket_id,
+                or_(
+                    *(
+                        StixEntityModel.other_stix_ids.contains([stix_id])
+                        for stix_id in wanted
+                    )
+                ),
+            )
+            .order_by(StixEntityModel.id)
+        )
+        resolved: dict[str, str] = {}
+        for platform_id, other_ids in result.all():
+            for other_id in other_ids or []:
+                if other_id in wanted:
+                    resolved.setdefault(other_id, platform_id)
+        return resolved
