@@ -52,7 +52,7 @@ A collector service that periodically scrapes a remote TAXII 2.1 collection and 
 
 - Supports HTTP Basic authentication (username + password).
 - Credentials are read from environment variables at startup; they must not appear in `platform_config.yaml`.
-- Each collector entry declares a `credentials_env` prefix (e.g. `"MITRE_TAXII"`); the collector reads `MITRE_TAXII_USER` and `MITRE_TAXII_PASS`.
+- Each collector entry declares a `credentials_env` key (e.g. `"MITRE_TAXII"`). Credentials are loaded through the platform `Settings` object (`Settings.COLLECTOR_CREDENTIALS`), so they follow the same `STIX_HUB_` prefix and `.env` support as every other setting: the collector uses `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER` and `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__PASS`.
 - `credentials_env` is optional; omit it for unauthenticated feeds.
 
 ### Submission to platform

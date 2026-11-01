@@ -21,8 +21,9 @@ collections:
 
 # Collectors periodically pull from a remote TAXII 2.1 collection into a bucket.
 # remote_url is the TAXII API root. Credentials are never stored here: with
-# credentials_env: "MITRE_TAXII" the collector reads MITRE_TAXII_USER and
-# MITRE_TAXII_PASS from the environment. Omit credentials_env for open feeds.
+# credentials_env: "MITRE_TAXII" the collector reads
+# STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER and ..._PASS from the
+# environment (or .env). Omit credentials_env for open feeds.
 collectors: []
 #  - name: mitre-attack
 #    remote_url: https://attack-taxii.mitre.org/api/v21/

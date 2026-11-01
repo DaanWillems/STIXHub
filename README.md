@@ -141,11 +141,13 @@ collectors:
     remote_url: https://attack-taxii.mitre.org/api/v21/   # TAXII API root
     remote_collection_id: x-mitre-collection--1f5f1533-f617-4ca8-9ab4-6a02367fa019
     target_bucket: raw-intel           # must exist in `buckets`
-    credentials_env: MITRE_TAXII       # optional: reads MITRE_TAXII_USER / MITRE_TAXII_PASS
+    credentials_env: MITRE_TAXII       # optional, see below
     poll_interval: 300                 # seconds (default 300)
     max_retries: 3                     # default 3
     shutdown_timeout: 30               # seconds (default 30)
 ```
+
+Remote credentials never go in the YAML. They are read through the platform settings (environment or `.env`): for `credentials_env: MITRE_TAXII` set `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER` and `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__PASS`.
 
 Collectors reach the platform's internal API at `STIX_HUB_PLATFORM_INTERNAL_URL` (default `http://127.0.0.1:8000`).
 

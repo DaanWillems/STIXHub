@@ -1,6 +1,6 @@
-import os
 from collections.abc import Mapping
 
+from config import CollectorCredentials, settings
 from models.domain import BucketConfig, CollectorConfig
 
 
@@ -23,21 +23,24 @@ def validate_collectors(
 
 
 def load_credentials(
-    config: CollectorConfig, environ: Mapping[str, str] | None = None
+    config: CollectorConfig,
+    credentials: Mapping[str, CollectorCredentials] | None = None,
 ) -> tuple[str, str] | None:
-    """Read HTTP Basic credentials from ``<credentials_env>_USER`` / ``_PASS``.
+    """Look up HTTP Basic credentials for ``config.credentials_env``.
 
+    Credentials come from ``Settings.COLLECTOR_CREDENTIALS`` (env vars
+    ``STIX_HUB_COLLECTOR_CREDENTIALS__<credentials_env>__USER`` / ``__PASS``).
     Returns ``None`` for unauthenticated feeds (no ``credentials_env``).
     """
     if config.credentials_env is None:
         return None
-    env = os.environ if environ is None else environ
-    user_var = f"{config.credentials_env}_USER"
-    pass_var = f"{config.credentials_env}_PASS"
-    missing = [var for var in (user_var, pass_var) if not env.get(var)]
-    if missing:
+    available = settings.COLLECTOR_CREDENTIALS if credentials is None else credentials
+    # pydantic-settings lower-cases the dict keys it reads from the environment.
+    found = available.get(config.credentials_env.lower())
+    if found is None:
+        prefix = f"STIX_HUB_COLLECTOR_CREDENTIALS__{config.credentials_env.upper()}"
         raise RuntimeError(
-            f"Collector '{config.name}' is missing credential environment "
-            f"variable(s): {', '.join(missing)}"
+            f"Collector '{config.name}' has no credentials configured; set "
+            f"{prefix}__USER and {prefix}__PASS"
         )
-    return env[user_var], env[pass_var]
+    return found.user, found.password.get_secret_value()

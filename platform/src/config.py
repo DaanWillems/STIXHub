@@ -5,12 +5,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, SecretStr, ValidationError
+
+
+class CollectorCredentials(BaseModel):
+    """HTTP Basic credentials for a remote TAXII server."""
+
+    user: str
+    password: SecretStr = Field(alias="pass")
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_ignore_empty=True, extra="ignore", env_prefix="stix_hub_"
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore",
+        env_prefix="stix_hub_",
+        env_nested_delimiter="__",
     )
     DATABASE_HOST: str
     DATABASE_PORT: int
@@ -24,6 +35,10 @@ class Settings(BaseSettings):
     PLATFORM_CONFIG: str = "platform_config.yaml"
     # Base URL collectors use to reach this platform's own REST API.
     PLATFORM_INTERNAL_URL: str = "http://127.0.0.1:8000"
+    # Remote TAXII credentials keyed by a collector's `credentials_env`, e.g.
+    # STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER / ...__PASS.
+    # Keys are lower-cased by pydantic-settings.
+    COLLECTOR_CREDENTIALS: dict[str, CollectorCredentials] = Field(default_factory=dict)
 
 
 settings = Settings()

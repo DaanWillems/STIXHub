@@ -10,6 +10,7 @@ from collectors.platform_client import PlatformClient
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
 from collectors.validation import load_credentials
+from config import CollectorCredentials
 from models.domain import CollectorConfig
 
 logger = logging.getLogger(__name__)
@@ -82,14 +83,17 @@ def create_runner(
     configs: list[CollectorConfig],
     platform_url: str,
     on_fatal: FatalHandler | None = terminate_process,
-    environ: Mapping[str, str] | None = None,
+    credentials: Mapping[str, CollectorCredentials] | None = None,
 ) -> CollectorRunner:
-    """Build collectors from config. Raises if credentials are misconfigured."""
+    """Build collectors from config. Raises if credentials are misconfigured.
+
+    ``credentials`` defaults to ``settings.COLLECTOR_CREDENTIALS``.
+    """
     stop_event = threading.Event()
     collectors: list[TaxiiCollector] = []
     clients: dict[str, list[httpx.Client]] = {}
     for config in configs:
-        auth = load_credentials(config, environ)
+        auth = load_credentials(config, credentials)
         taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
         platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
         clients[config.name] = [taxii_http, platform_http]

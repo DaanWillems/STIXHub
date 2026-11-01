@@ -109,5 +109,5 @@ def test_runner_abandons_thread_after_shutdown_timeout(
 
 def test_create_runner_fails_fast_on_missing_credentials() -> None:
     config = _config().model_copy(update={"credentials_env": "FEED"})
-    with pytest.raises(RuntimeError, match="FEED_USER"):
-        create_runner([config], "http://p", environ={})
+    with pytest.raises(RuntimeError, match="COLLECTOR_CREDENTIALS__FEED__USER"):
+        create_runner([config], "http://p", credentials={})

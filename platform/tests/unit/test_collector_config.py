@@ -1,6 +1,7 @@
 import pytest
 
 from collectors.validation import load_credentials, validate_collectors
+from config import CollectorCredentials, Settings
 from models.domain import BucketConfig, BucketMode, CollectorConfig, PlatformConfig
 
 
@@ -48,19 +49,28 @@ def test_validate_collectors_rejects_duplicate_names() -> None:
 
 
 def test_load_credentials_none_without_prefix() -> None:
-    assert load_credentials(_collector(), environ={}) is None
+    assert load_credentials(_collector(), credentials={}) is None
 
 
-def test_load_credentials_reads_env() -> None:
-    env = {"FEED_USER": "alice", "FEED_PASS": "s3cret"}
-    assert load_credentials(_collector(credentials_env="FEED"), environ=env) == (
+def test_load_credentials_matches_key_case_insensitively() -> None:
+    creds = {"feed": CollectorCredentials.model_validate({"user": "a", "pass": "s"})}
+    assert load_credentials(_collector(credentials_env="FEED"), creds) == ("a", "s")
+
+
+def test_load_credentials_missing_raises() -> None:
+    with pytest.raises(RuntimeError, match="COLLECTOR_CREDENTIALS__FEED__PASS"):
+        load_credentials(_collector(credentials_env="FEED"), credentials={})
+
+
+def test_settings_reads_collector_credentials_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER", "alice")
+    monkeypatch.setenv("STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__PASS", "s3cret")
+
+    creds = Settings().COLLECTOR_CREDENTIALS
+
+    assert load_credentials(_collector(credentials_env="MITRE_TAXII"), creds) == (
         "alice",
         "s3cret",
     )
-
-
-def test_load_credentials_missing_env_raises() -> None:
-    with pytest.raises(RuntimeError, match="FEED_PASS"):
-        load_credentials(
-            _collector(credentials_env="FEED"), environ={"FEED_USER": "alice"}
-        )
