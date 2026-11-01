@@ -1,8 +1,8 @@
 services:
   platform:
     build:
-      context: ./platform
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/Dockerfile
     ports:
       - "8001:8000"
     environment:
@@ -13,7 +13,7 @@ services:
       STIX_HUB_DATABASE_PASS: postgres
       STIX_HUB_DATABASE_ENGINE_ECHO: "false"
       STIX_HUB_PLATFORM_CONFIG: /config/platform_config.yaml
-      STIX_HUB_ADMIN_API_KEY: ${ADMIN_API_KEY}
+      STIX_HUB_ADMIN_API_KEY: "changeme"
     volumes:
       - ./platform_config.yaml:/config/platform_config.yaml:ro
     depends_on:
