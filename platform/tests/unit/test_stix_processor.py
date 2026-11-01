@@ -171,13 +171,11 @@ def test_observed_data_uses_first_observed() -> None:
 
 def test_unimplemented_type_raises() -> None:
     raw = _base(
-        "relationship",
-        "relationship--x",
-        relationship_type="uses",
-        source_ref="x--1",
-        target_ref="x--2",
+        "sighting",
+        "sighting--x",
+        sighting_of_ref="indicator--1",
     )
-    with pytest.raises(NotImplementedError, match="relationship"):
+    with pytest.raises(NotImplementedError, match="sighting"):
         process(raw)
 
 
@@ -204,3 +202,85 @@ def test_processed_object_has_platform_id() -> None:
     result = process(raw)
     assert result.object["id"] == result.platform_id
     assert result.object["spec_version"] == "2.1"
+
+
+# --- SROs ---
+
+
+def _rel(**extra: object) -> dict:  # type: ignore[type-arg]
+    fields: dict[str, object] = {
+        "relationship_type": "uses",
+        "source_ref": "malware--src",
+        "target_ref": "attack-pattern--tgt",
+    }
+    fields.update(extra)
+    return _base("relationship", "relationship--original", **fields)
+
+
+def test_relationship_value_and_id() -> None:
+    result = process(_rel())
+    assert result.value == "malware--src uses attack-pattern--tgt"
+    assert result.platform_id.startswith("relationship--")
+    assert result.other_stix_ids == ["relationship--original"]
+    assert result.object["id"] == result.platform_id
+
+
+def test_relationship_deterministic_id_ignores_original_id() -> None:
+    r1 = process(_rel())
+    r2 = process({**_rel(), "id": "relationship--other"})
+    assert r1.platform_id == r2.platform_id
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"relationship_type": "targets"},
+        {"source_ref": "malware--other"},
+        {"target_ref": "attack-pattern--other"},
+    ],
+)
+def test_relationship_id_depends_on_triple(change: dict[str, str]) -> None:
+    assert process(_rel()).platform_id != process(_rel(**change)).platform_id
+
+
+@pytest.mark.parametrize("missing", ["relationship_type", "source_ref", "target_ref"])
+def test_relationship_missing_required_field_raises(missing: str) -> None:
+    raw = _rel()
+    del raw[missing]
+    with pytest.raises(KeyError):
+        process(raw)
+
+
+def test_relationship_refs_rewritten_through_id_map() -> None:
+    id_map = {
+        "malware--src": "malware--platform",
+        "attack-pattern--tgt": "attack-pattern--platform",
+    }
+    raw = _rel()
+    result = process(raw, id_map)
+    assert result.object["source_ref"] == "malware--platform"
+    assert result.object["target_ref"] == "attack-pattern--platform"
+    assert result.value == "malware--platform uses attack-pattern--platform"
+    # The ID is derived from the rewritten refs, and the input is not mutated
+    expected = process(
+        _rel(source_ref="malware--platform", target_ref="attack-pattern--platform")
+    )
+    assert result.platform_id == expected.platform_id
+    assert raw["source_ref"] == "malware--src"
+
+
+def test_relationship_refs_missing_from_id_map_kept() -> None:
+    result = process(_rel(), {"malware--src": "malware--platform"})
+    assert result.object["source_ref"] == "malware--platform"
+    assert result.object["target_ref"] == "attack-pattern--tgt"
+
+
+def test_relationship_without_id_map_keeps_refs() -> None:
+    result = process(_rel())
+    assert result.object["source_ref"] == "malware--src"
+    assert result.object["target_ref"] == "attack-pattern--tgt"
+
+
+def test_id_map_does_not_touch_non_ref_objects() -> None:
+    raw = _base("malware", "malware--original", name="WannaCry", is_family=False)
+    assert process(raw, {"malware--original": "malware--x"}) == process(raw)

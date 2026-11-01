@@ -25,40 +25,79 @@ async def ingest_objects(
     returned status; they do not abort the batch.
     """
     assert bucket.id is not None
+    bucket_id: int = bucket.id
     now = datetime.now(UTC)
+
+    # Objects that reference other objects (e.g. relationships) are processed
+    # after everything else so their refs can be rewritten to platform IDs.
+    referencing = [
+        i
+        for i, raw_obj in enumerate(raw_objects)
+        if raw_obj.get("type") in stix_processor.REF_PROPERTIES
+    ]
+    referencing_set = set(referencing)
+    plain = [i for i in range(len(raw_objects)) if i not in referencing_set]
+
+    results: dict[int, StixEntity | TaxiiStatusRef] = {}
+    id_map: dict[str, str] = {}
+
+    def _process(index: int) -> None:
+        raw_obj = raw_objects[index]
+        obj_id: str = raw_obj.get("id", "unknown")
+        try:
+            _validate_stix_object(raw_obj)
+            processed = stix_processor.process(raw_obj, id_map)
+        except (NotImplementedError, ValueError, KeyError) as exc:
+            results[index] = TaxiiStatusRef(id=obj_id, message=str(exc))
+            return
+        id_map[obj_id] = processed.platform_id
+        results[index] = StixEntity(
+            id=0,
+            bucket_id=bucket_id,
+            stix_id=processed.platform_id,
+            type=raw_obj["type"],
+            spec_version=raw_obj["spec_version"],
+            creator=creator,
+            value=processed.value,
+            platform_modified=now,
+            platform_created=now,
+            other_stix_ids=processed.other_stix_ids,
+            object=processed.object,
+        )
+
+    for index in plain:
+        _process(index)
+
+    # Refs not satisfied by this batch may point at objects already stored in
+    # the bucket under their original ID; refs found nowhere are kept as-is.
+    missing = {
+        ref
+        for index in referencing
+        if "type" in raw_objects[index]
+        for ref in stix_processor.unresolved_refs(raw_objects[index])
+        if ref not in id_map
+    }
+    if missing:
+        id_map.update(await repo.resolve_stix_ids(bucket_id, sorted(missing)))
+
+    for index in referencing:
+        _process(index)
 
     successes: list[TaxiiStatusRef] = []
     failures: list[TaxiiStatusRef] = []
     entities_to_add: list[StixEntity] = []
-
-    for raw_obj in raw_objects:
-        obj_id: str = raw_obj.get("id", "unknown")
-        try:
-            _validate_stix_object(raw_obj)
-            processed = stix_processor.process(raw_obj)
-            entities_to_add.append(
-                StixEntity(
-                    id=0,
-                    bucket_id=bucket.id,
-                    stix_id=processed.platform_id,
-                    type=raw_obj["type"],
-                    spec_version=raw_obj["spec_version"],
-                    creator=creator,
-                    value=processed.value,
-                    platform_modified=now,
-                    platform_created=now,
-                    other_stix_ids=processed.other_stix_ids,
-                    object=processed.object,
-                )
-            )
+    for index in range(len(raw_objects)):
+        result = results[index]
+        if isinstance(result, StixEntity):
+            entities_to_add.append(result)
             successes.append(
                 TaxiiStatusRef(
-                    id=processed.platform_id,
-                    version=raw_obj.get("modified"),
+                    id=result.stix_id,
+                    version=raw_objects[index].get("modified"),
                 )
             )
-        except (NotImplementedError, ValueError, KeyError) as exc:
-            failures.append(TaxiiStatusRef(id=obj_id, message=str(exc)))
+        else:
+            failures.append(result)
 
     if entities_to_add:
         await repo.add_entities(bucket.id, entities_to_add)

@@ -230,3 +230,21 @@ async def test_acquire_entities_returns_empty_when_none_pending(
     acquired = await bucket_repo.acquire_entities(bucket.id, 1)
 
     assert acquired == []
+
+
+async def test_resolve_stix_ids(bucket_repo: DatabaseBucketRepository):
+    bucket = await bucket_repo.save(Bucket(name="resolve-bucket"))
+    other = await bucket_repo.save(Bucket(name="resolve-other"))
+    mine = make_entity(bucket.id, "malware--platform")
+    mine.other_stix_ids = ["malware--a", "malware--b"]
+    theirs = make_entity(other.id, "malware--elsewhere")
+    theirs.other_stix_ids = ["malware--c"]
+    await bucket_repo.add_entities(bucket.id, [mine])
+    await bucket_repo.add_entities(other.id, [theirs])
+
+    resolved = await bucket_repo.resolve_stix_ids(
+        bucket.id, ["malware--a", "malware--c", "malware--unknown"]
+    )
+
+    assert resolved == {"malware--a": "malware--platform"}
+    assert await bucket_repo.resolve_stix_ids(bucket.id, []) == {}
