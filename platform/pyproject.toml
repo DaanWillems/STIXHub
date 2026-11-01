@@ -12,7 +12,7 @@ authors = [
 dependencies = [
     "fastapi[standard]",
     "pydantic",
-    "sqlalchemy",
+    "sqlalchemy[asyncio]",
     "psycopg[binary]",
     "asyncpg",
     "uvicorn",
@@ -25,26 +25,16 @@ dev = [
     "ruff",
     "mypy",
     "pytest",
-    "pytest-env",
     "pytest-cov",
     "pytest-asyncio",
     "types-PyYAML"
 ]
 
+# Test environment variables are set in tests/conftest.py. The repo-root
+# pytest.ini mirrors these options so `pytest` also works from the repo root.
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
-env = [
-    "ENV = test",
-    "STIX_HUB_DATABASE_HOST=localhost",
-    "STIX_HUB_DATABASE_PORT=5432",
-    "STIX_HUB_DATABASE_NAME=app",
-    "STIX_HUB_DATABASE_USER=postgres",
-    "STIX_HUB_DATABASE_PASS=postgres",
-    "STIX_HUB_DATABASE_USE_NULLPOOL=true",
-    "STIX_HUB_DATABASE_ENGINE_ECHO=false",
-    "STIX_HUB_ADMIN_API_KEY=test-admin-key",
-    "STIX_HUB_PLATFORM_CONFIG=./platform/tests/platform_config.yaml",
-]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.mypy]
