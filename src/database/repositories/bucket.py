@@ -25,6 +25,7 @@ def _entity_from_model(model: StixEntityModel) -> StixEntity:
         object=model.object,
         status=ProcessingStatus(model.status),
         other_stix_ids=model.other_stix_ids or [],
+        pipeline=model.pipeline,
     )
 
 
@@ -278,6 +279,7 @@ class DatabaseBucketRepository(BucketRepository):
                 platform_modified=entity.platform_modified,
                 object=entity.object,
                 other_stix_ids=entity.other_stix_ids,
+                pipeline=entity.pipeline,
             )
             self._session.add(model)
         await self._session.flush()
@@ -309,6 +311,7 @@ class DatabaseBucketRepository(BucketRepository):
                     status=entity.status.value,
                     object=entity.object,
                     other_stix_ids=entity.other_stix_ids,
+                    pipeline=entity.pipeline,
                 )
             )
         await self._session.flush()

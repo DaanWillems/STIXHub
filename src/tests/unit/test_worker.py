@@ -86,7 +86,8 @@ async def test_results_are_appended_to_every_sink() -> None:
         for entity, source in zip(sink_entities, sources_before, strict=True):
             assert entity.bucket_id == buckets[sink].id
             assert entity.status == ProcessingStatus.pending
-            assert entity.creator == "pipeline:refine"
+            assert entity.creator == source.creator == "collector"
+            assert entity.pipeline == "refine"
             assert entity.object["labels"] == ["refined"]
             assert entity.stix_id == source.stix_id
             assert entity.other_stix_ids == source.other_stix_ids
@@ -107,6 +108,7 @@ async def test_source_entities_marked_processed_and_unchanged() -> None:
 
     sources = await repo.get_entities(bucket_name="raw")
     assert [e.status for e in sources] == [ProcessingStatus.processed] * 2
+    assert [e.pipeline for e in sources] == [None, None]
     assert [e.object for e in sources] == objects_before
 
 

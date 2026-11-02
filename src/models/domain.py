@@ -115,6 +115,8 @@ class StixEntity:
     object: dict
     status: ProcessingStatus = field(default=ProcessingStatus.pending)
     other_stix_ids: list[str] = field(default_factory=list)
+    # Name of the last pipeline that wrote this entity; None when ingested directly.
+    pipeline: str | None = None
 
 
 @dataclass

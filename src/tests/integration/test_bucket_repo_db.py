@@ -364,8 +364,10 @@ async def test_worker_process_batch_writes_sink_and_marks_source(
 
     [sink_entity] = await bucket_repo.get_entities(bucket_id=refined.id)
     assert sink_entity.status == ProcessingStatus.pending
-    assert sink_entity.creator == "pipeline:refine"
+    assert sink_entity.creator == "test"
+    assert sink_entity.pipeline == "refine"
     assert sink_entity.object["labels"] == ["refined"]
     [source_entity] = await bucket_repo.get_entities(bucket_id=raw.id)
     assert source_entity.status == ProcessingStatus.processed
+    assert source_entity.pipeline is None
     assert source_entity.object["labels"] == []

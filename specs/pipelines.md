@@ -67,10 +67,10 @@ source bucket:
 2. Resolve every sink bucket. If one doesn't exist, the batch fails before anything is
    written (`SinkNotFoundError`).
 3. Run the pipeline on copies of the entities (see the ref ↔ value resolution section below).
-4. **Append** each result to **every** sink as a new entity, with status `pending`, creator
-   `pipeline:<name>`, and `platform_created` / `platform_modified` set to now. `stix_id`,
-   `other_stix_ids`, `type` and `value` carry over from the source entity. Each sink gets
-   its own copy of the object.
+4. **Append** each result to **every** sink as a new entity, with status `pending`,
+   `pipeline` set to the pipeline's name, and `platform_created` / `platform_modified` set to
+   now. `creator`, `stix_id`, `other_stix_ids`, `type` and `value` carry over from the source
+   entity. Each sink gets its own copy of the object.
 5. Mark the source entities `processed`. Their objects are not modified.
 
 All of this runs in **one database transaction**. If any step fails, nothing is written and
@@ -79,6 +79,16 @@ the source entities go back to `pending`.
 Sinks are written in append mode **regardless of the bucket's mode**. Deduplication for
 merge-mode sinks ("latest version wins", see [bucket-config.md](bucket-config.md)) is not
 implemented yet.
+
+### Provenance
+
+- `creator` always names the **original** source of the intel, e.g.
+  `collector:urlhaus-taxii-scraper` or the TAXII collection it was written to. Pipelines
+  never change it.
+- `pipeline` names the **last** pipeline that wrote the entity. It is empty (`NULL`) for
+  entities ingested directly through TAXII or a collector. In a chain
+  (`raw → refined → shared`), the entity in `shared` has the second pipeline's name and the
+  original `creator`.
 
 ### Chaining and cycles
 

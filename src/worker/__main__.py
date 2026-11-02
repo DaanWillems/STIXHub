@@ -79,7 +79,6 @@ class Worker:
         results = await pipeline.execute_pipeline(objects=entities, resolver=resolver)
 
         now = datetime.now(UTC)
-        creator = f"pipeline:{pipeline.pipeline_definition.name}"
         for sink in sinks:
             assert sink.id is not None
             await repo.add_entities(
@@ -89,7 +88,7 @@ class Worker:
                         result,
                         id=0,
                         bucket_id=sink.id,
-                        creator=creator,
+                        pipeline=pipeline.pipeline_definition.name,
                         status=ProcessingStatus.pending,
                         platform_created=now,
                         platform_modified=now,
