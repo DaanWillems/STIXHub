@@ -11,13 +11,13 @@ STIXHub is currently not production ready, but does already support a number of 
 :white_check_mark: Writing to collections \
 :white_check_mark: Reading from collections \
 :white_check_mark: Storage system driven by the bucket design \
-:white_check_mark: Append only buckets
+:white_check_mark: Append only buckets\
+:white_check_mark: Collector service to read external TAXII 2.1 endpoints
 
 **The following features are planned:**\
 \
 :heavy_exclamation_mark: Bucket merge mode for deduplication\
 :heavy_exclamation_mark: User management and RBAC on buckets\
-:heavy_exclamation_mark: Collector service to read external TAXII 2.1 endpoints\
 :heavy_exclamation_mark: Collector service to read external MISP endpoints\
 :heavy_exclamation_mark: Pipelines to move and transform data between buckets\
 :heavy_exclamation_mark: Multi node deployments to enable horizontal scaling
@@ -128,15 +128,33 @@ An example configuration may be as follows:
 In this example user a has access to both collection-a and collection-b. However, while can read all entities in collection-a, they can only read entities from bucket-b in collection-b, because their role does not grant them access to bucket-c.
 
 ## Collector
-A collector is responsible for collecting data from another TAXII server (or other protocols) and inserting them into a bucket. Collectors communicate with the system via a HTTP/s rest API. When a connector starts, it registers itself to to the platform, and indicate to which bucket it wants to write. The default behaviour is that the platform provisions a new bucket for each collector. However you can configure the collector to write to another bucket.
+A collector is responsible for collecting data from another TAXII server (or other protocols) and inserting them into a bucket. Collectors communicate with the system via a HTTP/s rest API. When a collector starts, it registers itself with the platform and indicates which bucket it wants to write to. The target bucket must be declared in the `buckets` section of `platform_config.yaml`.
 
-The collector submits entities to the system by HTTP/s. The system writes them to the configured bucket. 
+The collector submits entities to the system by HTTP/s. The system writes them to the configured bucket and stores the collector's cursor, so a restart resumes where it left off.
+
+### TAXII 2.1 collector
+The built-in TAXII collector polls a remote TAXII 2.1 collection on an interval and runs as a background thread inside the platform process. Configure it in `platform_config.yaml`:
+
+```yaml
+collectors:
+  - name: mitre-attack                 # required, unique
+    remote_url: https://attack-taxii.mitre.org/api/v21/   # TAXII API root
+    remote_collection_id: x-mitre-collection--1f5f1533-f617-4ca8-9ab4-6a02367fa019
+    target_bucket: raw-intel           # must exist in `buckets`
+    credentials_env: MITRE_TAXII       # optional, see below
+    poll_interval: 300                 # seconds (default 300)
+    max_retries: 3                     # default 3
+    shutdown_timeout: 30               # seconds (default 30)
+```
+
+Remote credentials never go in the YAML. They are read through the platform settings (environment or `.env`): for `credentials_env: MITRE_TAXII` set `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER` and `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__PASS`.
+
+Collectors reach the platform's internal API at `STIX_HUB_PLATFORM_INTERNAL_URL` (default `http://127.0.0.1:8000`).
 
 ```mermaid
 sequenceDiagram
     Collector->>Platform: Register (name, and bucket)?
     Platform->>Database: Lookup state of collector
-    Platform->>Database: Provisions new bucket
     Platform->>Collector: Return OK, position of cursor
     Collector->>Collector: Fetch data
     Collector->>Platform: Submit data, update cursor

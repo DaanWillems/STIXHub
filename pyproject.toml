@@ -1,0 +1,47 @@
+[build-system]
+requires= ["setuptools>=72.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*", "worker*", "database*"]
+
+[project]
+name = "STIXHub"
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [
+    { name = "Daan Willems", email = "daan@daan.nl"}
+]
+dependencies = [
+    "fastapi[standard]",
+    "pydantic",
+    "sqlalchemy[asyncio]",
+    "psycopg[binary]",
+    "asyncpg",
+    "uvicorn",
+    "pyyaml",
+    "httpx"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "types-PyYAML"
+]
+
+# Test environment variables are set in src/tests/conftest.py.
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+testpaths = ["src/tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+warn_return_any = true
+warn_unused_configs = true
+strict = true
+check_untyped_defs = true

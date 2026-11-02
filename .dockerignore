@@ -1,0 +1,14 @@
+# Build context is the repo root; only ship what the image needs.
+*
+!pyproject.toml
+!README.md
+!src/
+src/tests/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+**/.vscode/
+**/.env
