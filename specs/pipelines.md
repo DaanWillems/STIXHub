@@ -52,9 +52,45 @@ When the worker loads its pipelines (`PipelineManager`), any of the following is
 | `role` is not declared under `roles`       | `references unknown role '<role>'`                |
 | A `sources` bucket not in `role.can_read`  | `role '<role>' cannot read source bucket '<b>'`   |
 | A `sinks` bucket not in `role.can_write`   | `role '<role>' cannot write sink bucket '<b>'`    |
+| Pipelines form a cycle (see below)         | `Pipelines form a cycle: a -> b -> a`             |
 
 Effective permissions are computed by `permissions.get_effective_permissions`, the same
 function the TAXII routes use for users.
+
+## Writing to sinks
+
+The worker (`worker/__main__.py`, `Worker.process_batch`) handles one batch per pipeline and
+source bucket:
+
+1. Acquire up to 10 `pending` entities from the source (`SELECT … FOR UPDATE SKIP LOCKED`,
+   so several workers can share a bucket) and mark them `processing`.
+2. Resolve every sink bucket. If one doesn't exist, the batch fails before anything is
+   written (`SinkNotFoundError`).
+3. Run the pipeline on copies of the entities (see the ref ↔ value resolution section below).
+4. **Append** each result to **every** sink as a new entity, with status `pending`, creator
+   `pipeline:<name>`, and `platform_created` / `platform_modified` set to now. `stix_id`,
+   `other_stix_ids`, `type` and `value` carry over from the source entity. Each sink gets
+   its own copy of the object.
+5. Mark the source entities `processed`. Their objects are not modified.
+
+All of this runs in **one database transaction**. If any step fails, nothing is written and
+the source entities go back to `pending`.
+
+Sinks are written in append mode **regardless of the bucket's mode**. Deduplication for
+merge-mode sinks ("latest version wins", see [bucket-config.md](bucket-config.md)) is not
+implemented yet.
+
+### Chaining and cycles
+
+Because sink entities start as `pending`, a pipeline that reads a bucket picks up what
+another pipeline wrote there, so pipelines can be chained (`raw → refined → shared`). For the
+same reason, the pipeline graph must be acyclic. Each pipeline adds an edge from each of its
+sources to each of its sinks, and any cycle is a fatal startup error, including a pipeline
+whose sink is one of its own sources:
+
+```
+PipelineValidationError: Pipelines form a cycle: raw -> refined -> shared -> raw
+```
 
 ## Ref ↔ value resolution
 
@@ -114,7 +150,8 @@ result: the alternative leaks RED intel into GREEN.
 
 ## Not yet implemented
 
-- The worker discards the pipeline output instead of writing it to `sinks`.
+- Merge-mode sinks are not deduplicated; every result is appended.
+- `Worker.run` processes one batch per source and exits; there is no polling loop yet.
 - There is no action to drop an entity, so TLP gating ("skip anything marked tlp:red") can't be
   expressed yet.
 - Ingest does not rewrite `created_by_ref` / `object_marking_refs` to platform IDs. The

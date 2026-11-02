@@ -89,6 +89,7 @@ class BucketRepository(ABC):
 class InMemoryBucketRepository(BucketRepository):
     def __init__(self) -> None:
         self._index_counter: int = 0
+        self._entity_counter: int = 0
         self._store: dict[int, tuple[Bucket, list[StixEntity]]] = {}
 
     async def save(self, bucket_in: Bucket) -> Bucket:
@@ -136,6 +137,11 @@ class InMemoryBucketRepository(BucketRepository):
         self, bucket_id: int, entities_in: list[StixEntity]
     ) -> Bucket:
         bucket, entities = self._store[bucket_id]
+        # Like the database's autoincrement: id 0 means "not assigned yet".
+        for entity in entities_in:
+            if entity.id == 0:
+                self._entity_counter += 1
+                entity.id = self._entity_counter
         self._store[bucket_id] = (bucket, entities + entities_in)
         return bucket
 

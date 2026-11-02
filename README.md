@@ -179,6 +179,8 @@ A pipeline can perform the following actions on an entity
 
 Pipelines run on new data in buckets, but can be triggered to reprocess old data.
 
+Results are appended to every sink bucket as new pending entities, so another pipeline that reads that bucket picks them up and pipelines can be chained. Pipelines must not form a cycle: the worker refuses to start if they do.
+
 ### Roles and readable values
 Each pipeline runs as a **role** (the same roles used for users). The role must be able to read the pipeline's sources and write its sinks, and the pipeline can only see intel in buckets that role can read. This keeps bucket views separate: a pipeline that feeds a TLP:GREEN bucket can run as a role that never sees TLP:RED intel, so that intel can't leak into the sink or influence how objects are processed.
 
