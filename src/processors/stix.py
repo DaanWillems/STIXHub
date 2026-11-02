@@ -79,6 +79,80 @@ def _relationship_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     }
 
 
+# Well-known TLP marking-definition IDs. TLP markings keep these IDs on
+# ingestion (instead of a derived uuid5) so consumers still recognise them.
+# TLP 1.0: STIX 2.1 spec section 7.2.1.4.
+TLP_1_IDS: dict[str, str] = {
+    "tlp:white": "marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9",
+    "tlp:green": "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da",
+    "tlp:amber": "marking-definition--f88d31f6-486f-44da-b317-01333bde0b82",
+    "tlp:red": "marking-definition--5e57c739-391a-4eb3-b6be-7d15ca92d5ed",
+}
+# TLP 2.0: OASIS cti-stix-common-objects, extension-definition-specifications/tlp-2.0.
+TLP_2_EXTENSION_ID = "extension-definition--60a3c5c5-0d10-413e-aab3-9e08dde9e88d"
+TLP_2_IDS: dict[str, str] = {
+    "tlp:clear": "marking-definition--94868c89-83c2-464b-929b-a1a8aa3c8487",
+    "tlp:green": "marking-definition--bab4a63c-aed9-4cf5-a766-dfca5abac2bb",
+    "tlp:amber": "marking-definition--55d920b0-5e8b-4f79-9ee9-91f868d9b421",
+    "tlp:amber+strict": "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003",
+    "tlp:red": "marking-definition--e828b379-4e03-4974-9ac4-e53a884c97c1",
+}
+# Reverse lookup covering both TLP versions, e.g. both green IDs -> "tlp:green".
+TLP_VALUES_BY_ID: dict[str, str] = {
+    **{marking_id: value for value, marking_id in TLP_1_IDS.items()},
+    **{marking_id: value for value, marking_id in TLP_2_IDS.items()},
+}
+
+
+def _marking_definition_value(raw: dict[str, Any]) -> tuple[str, int | None]:
+    """Return the readable value of a marking and its TLP version (or None)."""
+    tlp_2 = raw.get("extensions", {}).get(TLP_2_EXTENSION_ID)
+    if tlp_2 is not None:
+        return f"tlp:{tlp_2['tlp_2_0'].lower()}", 2
+    definition_type = raw.get("definition_type")
+    definition = raw.get("definition") or {}
+    if definition_type == "tlp":
+        return f"tlp:{definition['tlp'].lower()}", 1
+    if definition_type == "statement":
+        return f"statement:{definition['statement']}", None
+    if raw.get("name"):
+        return str(raw["name"]), None
+    raise ValueError(
+        "marking-definition requires a TLP definition, a statement or a name"
+    )
+
+
+def _marking_definition_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    v, _ = _marking_definition_value(raw)
+    return v, {"value": v}
+
+
+def _well_known_id(obj_type: str, raw: dict[str, Any]) -> str | None:
+    if obj_type != "marking-definition":
+        return None
+    value, version = _marking_definition_value(raw)
+    if version == 1:
+        return TLP_1_IDS.get(value)
+    if version == 2:
+        return TLP_2_IDS.get(value)
+    return None
+
+
+def platform_id(stix_type: str, value: str) -> str:
+    """Deterministic platform ID of an object of ``stix_type`` with ``value``.
+
+    Matches the ID ``process`` assigns to value-keyed types (everything except
+    relationships). A ``tlp:*`` marking value maps to its TLP 2.0 ID.
+    """
+    if stix_type == "relationship":
+        raise ValueError("relationship IDs are not derived from a single value")
+    if stix_type == "marking-definition" and value in TLP_2_IDS:
+        return TLP_2_IDS[value]
+    if stix_type == "marking-definition" and value in TLP_1_IDS:
+        return TLP_1_IDS[value]
+    return _uuid5(stix_type, {"value": value})
+
+
 # Properties holding a single STIX ID that must be rewritten to platform IDs
 # before an object is processed, keyed by STIX type.
 REF_PROPERTIES: dict[str, tuple[str, ...]] = {
@@ -115,6 +189,8 @@ _PROCESSORS: dict[str, Any] = {
     "threat-actor": _name_processor,
     "tool": _name_processor,
     "vulnerability": _name_processor,
+    # SMOs
+    "marking-definition": _marking_definition_processor,
     # SROs — identified by the (source, type, target) triple
     "relationship": _relationship_processor,
 }
@@ -149,11 +225,11 @@ def process(
         )
 
     value, contributing = processor(raw)
-    platform_id = _uuid5(obj_type, contributing)
-    processed_obj = {**raw, "id": platform_id}
+    object_id = _well_known_id(obj_type, raw) or _uuid5(obj_type, contributing)
+    processed_obj = {**raw, "id": object_id}
 
     return ProcessedStixObject(
-        platform_id=platform_id,
+        platform_id=object_id,
         value=value,
         other_stix_ids=[original_id],
         object=processed_obj,

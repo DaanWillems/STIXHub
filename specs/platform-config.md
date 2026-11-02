@@ -28,6 +28,8 @@ collections:
     bucket_name: raw-intel
 ```
 
+The file also holds top-level `roles` (see [users-rbac.md](users-rbac.md)), `collectors` (see [taxii-collector.md](taxii-collector.md)) and `pipelines` (see [pipelines.md](pipelines.md)); the full example lives in `platform_config.yaml` at the repository root.
+
 `buckets` and `collections` are flat top-level lists. A collection references its bucket by `bucket_name`; there is no nesting. This keeps the door open for a collection to source from multiple buckets in the future.
 
 ## Pydantic Models

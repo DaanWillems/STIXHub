@@ -3,7 +3,8 @@ from pathlib import Path
 from typing import List
 
 from merging.most_recent_deduplicated import MostRecentDeduplicated
-from models.domain import PlatformConfig
+from models.domain import PipelineConfig, PlatformConfig
+from permissions import get_effective_permissions
 from pipeline.pipeline import (
     PipelineExecutionError,
     PipelineExecutor,
@@ -24,9 +25,32 @@ class PipelineManager:
     def pipelines(self) -> List[PipelineExecutor]:
         return self._pipelines
 
+    def _validate_role(self, pipeline: PipelineConfig) -> None:
+        """Check that the pipeline's role may read its sources and write its sinks."""
+        if pipeline.role not in {role.name for role in self.platform_config.roles}:
+            raise PipelineValidationError(
+                f"Pipeline '{pipeline.name}' references unknown role '{pipeline.role}'"
+            )
+        can_read, can_write = get_effective_permissions(
+            [pipeline.role], self.platform_config.roles
+        )
+        for source in pipeline.sources:
+            if source not in can_read:
+                raise PipelineValidationError(
+                    f"Pipeline '{pipeline.name}': role '{pipeline.role}' "
+                    f"cannot read source bucket '{source}'"
+                )
+        for sink in pipeline.sinks:
+            if sink not in can_write:
+                raise PipelineValidationError(
+                    f"Pipeline '{pipeline.name}': role '{pipeline.role}' "
+                    f"cannot write sink bucket '{sink}'"
+                )
+
     def _load_pipelines(self):
         for pipeline in self.platform_config.pipelines:
             try:
+                self._validate_role(pipeline)
                 pipeline = PipelineExecutor(pipeline)
                 self._pipelines.append(pipeline)
             except PipelineValidationError as e:

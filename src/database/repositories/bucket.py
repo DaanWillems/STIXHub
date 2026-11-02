@@ -73,6 +73,18 @@ class BucketRepository(ABC):
         ``other_stix_ids``. IDs with no match are left out of the result.
         """
 
+    @abstractmethod
+    async def find_by_refs(
+        self, bucket_ids: list[int], stix_type: str, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        """Map STIX IDs to entities of ``stix_type`` stored in ``bucket_ids``.
+
+        A ref matches an entity when it equals the entity's platform
+        ``stix_id`` or appears in its ``other_stix_ids``. When several
+        entities match, the oldest (lowest ``id``) wins. Refs with no match
+        are left out of the result.
+        """
+
 
 class InMemoryBucketRepository(BucketRepository):
     def __init__(self) -> None:
@@ -166,6 +178,27 @@ class InMemoryBucketRepository(BucketRepository):
                 if other_id in wanted:
                     resolved.setdefault(other_id, entity.stix_id)
         return resolved
+
+    async def find_by_refs(
+        self, bucket_ids: list[int], stix_type: str, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        candidates = sorted(
+            (
+                entity
+                for bucket_id in bucket_ids
+                if bucket_id in self._store
+                for entity in self._store[bucket_id][1]
+                if entity.type == stix_type
+            ),
+            key=lambda entity: entity.id,
+        )
+        found: dict[str, StixEntity] = {}
+        for entity in candidates:
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found
 
 
 class DatabaseBucketRepository(BucketRepository):
@@ -333,3 +366,32 @@ class DatabaseBucketRepository(BucketRepository):
                 if other_id in wanted:
                     resolved.setdefault(other_id, platform_id)
         return resolved
+
+    async def find_by_refs(
+        self, bucket_ids: list[int], stix_type: str, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        if not wanted or not bucket_ids:
+            return {}
+        result = await self._session.execute(
+            select(StixEntityModel)
+            .where(
+                StixEntityModel.bucket_id.in_(bucket_ids),
+                StixEntityModel.type == stix_type,
+                or_(
+                    StixEntityModel.stix_id.in_(wanted),
+                    *(
+                        StixEntityModel.other_stix_ids.contains([ref])
+                        for ref in wanted
+                    ),
+                ),
+            )
+            .order_by(StixEntityModel.id)
+        )
+        found: dict[str, StixEntity] = {}
+        for model in result.scalars().all():
+            entity = _entity_from_model(model)
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found

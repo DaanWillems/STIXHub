@@ -48,9 +48,18 @@ roles:
       - refined-intel
     can_write:
       - raw-intel
+  # Role a pipeline runs as: it can only resolve authors and markings from
+  # buckets this role can read, so it never acts on intel the readers of its
+  # sink may not see.
+  - name: refiner
+    can_read:
+      - raw-intel
+    can_write:
+      - refined-intel
 
 pipelines:
   - name: a
+    role: refiner
     sources:
       - "raw-intel"
     sinks:

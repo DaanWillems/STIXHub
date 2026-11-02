@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from processors.stix import STIX_NAMESPACE, process
+from processors.stix import STIX_NAMESPACE, TLP_2_EXTENSION_ID, platform_id, process
 
 
 def _base(type_: str, id_: str, **extra: object) -> dict:  # type: ignore[type-arg]
@@ -179,12 +179,68 @@ def test_unimplemented_type_raises() -> None:
         process(raw)
 
 
-def test_marking_definition_raises() -> None:
+# --- marking-definition ---
+
+
+def test_marking_definition_tlp1_keeps_well_known_id() -> None:
     raw = _base(
-        "marking-definition", "marking-definition--x", definition_type="statement"
+        "marking-definition",
+        "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da",
+        definition_type="tlp",
+        definition={"tlp": "green"},
     )
-    with pytest.raises(NotImplementedError):
+    result = process(raw)
+    assert result.value == "tlp:green"
+    assert result.platform_id == "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da"
+
+
+def test_marking_definition_tlp2_keeps_well_known_id() -> None:
+    raw = _base(
+        "marking-definition",
+        "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003",
+        name="TLP:AMBER+STRICT",
+        extensions={
+            TLP_2_EXTENSION_ID: {
+                "extension_type": "property-extension",
+                "tlp_2_0": "amber+strict",
+            }
+        },
+    )
+    result = process(raw)
+    assert result.value == "tlp:amber+strict"
+    assert result.platform_id == "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003"
+
+
+def test_marking_definition_statement_gets_deterministic_id() -> None:
+    raw = _base(
+        "marking-definition",
+        "marking-definition--original",
+        definition_type="statement",
+        definition={"statement": "Internal use only"},
+    )
+    result = process(raw)
+    assert result.value == "statement:Internal use only"
+    assert result.platform_id == platform_id(
+        "marking-definition", "statement:Internal use only"
+    )
+    assert result.other_stix_ids == ["marking-definition--original"]
+
+
+def test_marking_definition_without_definition_raises() -> None:
+    raw = _base("marking-definition", "marking-definition--x")
+    with pytest.raises(ValueError):
         process(raw)
+
+
+def test_platform_id_matches_process_for_identity() -> None:
+    raw = _base("identity", "identity--original", name="ACME Corp")
+    assert process(raw).platform_id == platform_id("identity", "ACME Corp")
+
+
+def test_platform_id_maps_tlp_value_to_tlp2_id() -> None:
+    assert platform_id("marking-definition", "tlp:red") == (
+        "marking-definition--e828b379-4e03-4974-9ac4-e53a884c97c1"
+    )
 
 
 # --- other_stix_ids ---

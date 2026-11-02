@@ -179,6 +179,32 @@ A pipeline can perform the following actions on an entity
 
 Pipelines run on new data in buckets, but can be triggered to reprocess old data.
 
+### Roles and readable values
+Each pipeline runs as a **role** (the same roles used for users). The role must be able to read the pipeline's sources and write its sinks, and the pipeline can only see intel in buckets that role can read. This keeps bucket views separate: a pipeline that feeds a TLP:GREEN bucket can run as a role that never sees TLP:RED intel, so that intel can't leak into the sink or influence how objects are processed.
+
+Conditions and steps refer to authors and markings by readable value instead of STIX ID:
+
+```yaml
+pipelines:
+  - name: tag-acme
+    role: refiner
+    sources: [raw-intel]
+    sinks: [refined-intel]
+    steps:
+      - action: add
+        field: labels
+        value: acme
+        condition:
+          field: created_by_ref
+          type: eq
+          value: ACME Corp        # identity name
+      - action: add
+        field: object_marking_refs
+        value: tlp:amber          # tlp:*, statement:<text> or a marking name
+```
+
+Values are translated back to refs on output: unchanged values keep their original ref, and new values get the platform's deterministic ID. A ref the role can't resolve stays a raw ID. See [specs/pipelines.md](specs/pipelines.md) for details.
+
 ### Locking mechanism
 Workers constantly poll the database to check for new entities. When writing to a bucket, they are capable of performing an upsert. Effectively merging the data according to a specific strategy. When multiple workers are active, the system needs to manage them to prevent a deduplication conflict scenario. 
 

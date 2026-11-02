@@ -27,6 +27,7 @@ roles:
 
 pipelines:
   - name: a
+    role: admin
     sources:
       - "Example collection"
     sinks:

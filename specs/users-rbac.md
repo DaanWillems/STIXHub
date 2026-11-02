@@ -152,6 +152,12 @@ When a request arrives at a data endpoint:
 
 Collection visibility: a collection is included in `GET /taxii2/collections` only if the caller has read or write access to its bucket.
 
+Effective permissions are computed by `permissions.get_effective_permissions`.
+
+### Pipelines
+
+Pipelines run as a role too (`role:` on each pipeline). The role must be able to read every source and write every sink, and the pipeline only resolves authors and markings from buckets the role can read. See [pipelines.md](pipelines.md).
+
 ## Startup Validation
 
 At startup, after loading `platform_config.yaml`:
@@ -175,3 +181,4 @@ At startup, after loading `platform_config.yaml`:
 | User not found                     | 404 Not Found            |
 | Insufficient bucket permission     | 403 Forbidden            |
 | Role references unknown bucket     | startup crash            |
+| Pipeline role unknown, or cannot read a source / write a sink | worker startup crash |

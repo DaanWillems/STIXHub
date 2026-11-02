@@ -297,3 +297,29 @@ async def test_resolve_stix_ids(bucket_repo: DatabaseBucketRepository):
 
     assert resolved == {"malware--a": "malware--platform"}
     assert await bucket_repo.resolve_stix_ids(bucket.id, []) == {}
+
+
+async def test_find_by_refs_scoped_to_buckets_and_type(
+    bucket_repo: DatabaseBucketRepository,
+):
+    readable = await bucket_repo.save(Bucket(name="readable"))
+    hidden = await bucket_repo.save(Bucket(name="hidden"))
+
+    identity = make_entity(readable.id, "identity--platform")
+    identity.type = "identity"
+    identity.value = "ACME Corp"
+    identity.other_stix_ids = ["identity--original"]
+    hidden_identity = make_entity(hidden.id, "identity--hidden")
+    hidden_identity.type = "identity"
+    await bucket_repo.add_entities(readable.id, [identity, make_entity(readable.id)])
+    await bucket_repo.add_entities(hidden.id, [hidden_identity])
+
+    found = await bucket_repo.find_by_refs(
+        [readable.id],
+        "identity",
+        ["identity--platform", "identity--original", "identity--hidden", "indicator--abc123"],
+    )
+
+    assert set(found) == {"identity--platform", "identity--original"}
+    assert found["identity--original"].value == "ACME Corp"
+    assert await bucket_repo.find_by_refs([readable.id], "identity", []) == {}
