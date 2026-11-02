@@ -1,10 +1,14 @@
 import asyncio
+import contextlib
 import copy
 import logging
+import signal
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from config import load_platform_config
+from config import load_platform_config, settings
 from database.database import db
 from database.repositories.bucket import BucketRepository, DatabaseBucketRepository
 from models.domain import Bucket, PlatformConfig, ProcessingStatus, StixEntity
@@ -20,10 +24,37 @@ class SinkNotFoundError(Exception):
     pass
 
 
+RepoFactory = Callable[[], AbstractAsyncContextManager[BucketRepository]]
+
+
+@contextlib.asynccontextmanager
+async def _database_repo() -> AsyncIterator[BucketRepository]:
+    """One transaction per batch: it commits on success and rolls back on error."""
+    async with db.get_session() as session:
+        yield DatabaseBucketRepository(session=session)
+
+
 class Worker:
-    def __init__(self, config: PlatformConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: PlatformConfig | None = None,
+        *,
+        poll_interval: float | None = None,
+        batch_size: int | None = None,
+        repo_factory: RepoFactory = _database_repo,
+    ) -> None:
         self.config = config if config is not None else load_platform_config()
         self.pipeline_manager = PipelineManager(platform_config=self.config)
+        self.poll_interval = (
+            poll_interval if poll_interval is not None else settings.WORKER_POLL_INTERVAL
+        )
+        self.batch_size = batch_size if batch_size is not None else settings.WORKER_BATCH_SIZE
+        self._repo_factory = repo_factory
+        self._stop = asyncio.Event()
+
+    def stop(self) -> None:
+        """Ask ``run`` to exit once the current batch is done."""
+        self._stop.set()
 
     async def _resolver_for(
         self, pipeline: PipelineExecutor, repo: BucketRepository
@@ -58,7 +89,7 @@ class Worker:
         pipeline: PipelineExecutor,
         source: Bucket,
         repo: BucketRepository,
-        n: int = 10,
+        n: int = 100,
     ) -> int:
         """Run ``pipeline`` on up to ``n`` pending entities of ``source``.
 
@@ -111,25 +142,68 @@ class Worker:
         )
         return len(entities)
 
-    async def run(self) -> None:
+    async def run_once(self) -> int:
+        """Process one batch for every (pipeline, source) pair.
+
+        Each batch runs in its own transaction. A failing batch is logged and
+        rolled back (its entities stay pending) without affecting the others.
+        Returns the number of source entities processed.
+        """
+        total = 0
         for p in self.pipeline_manager.pipelines():
+            name = p.pipeline_definition.name
             for source_name in p.pipeline_definition.sources:
+                if self._stop.is_set():
+                    return total
                 try:
-                    async with db.get_session() as session:
-                        repo = DatabaseBucketRepository(session=session)
+                    async with self._repo_factory() as repo:
                         source = await repo.get(bucket_name=source_name)
                         if source is None:
                             logger.warning(
                                 "Pipeline '%s': source bucket '%s' does not exist",
-                                p.pipeline_definition.name,
+                                name,
                                 source_name,
                             )
                             continue
-                        await self.process_batch(p, source, repo)
+                        total += await self.process_batch(
+                            p, source, repo, n=self.batch_size
+                        )
                 except SinkNotFoundError as exc:
-                    # The transaction rolled back; the batch stays pending.
                     logger.error("%s", exc)
+                except Exception:
+                    logger.exception(
+                        "Pipeline '%s' failed on source '%s'", name, source_name
+                    )
+        return total
+
+    async def run(self) -> None:
+        """Process batches until ``stop`` is called.
+
+        Passes run back to back while there is work; when a pass finds nothing
+        pending, the worker sleeps ``poll_interval`` seconds (waking early on
+        ``stop``).
+        """
+        logger.info(
+            "Worker started: %d pipeline(s), batch size %d, poll interval %ss",
+            len(self.pipeline_manager.pipelines()),
+            self.batch_size,
+            self.poll_interval,
+        )
+        while not self._stop.is_set():
+            if await self.run_once() == 0:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop.wait(), self.poll_interval)
+        logger.info("Worker stopped")
+
+
+async def main() -> None:
+    """Run the worker until SIGINT or SIGTERM, finishing the current batch first."""
+    worker = Worker()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, worker.stop)
+    await worker.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(Worker().run())
+    asyncio.run(main())

@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     PLATFORM_CONFIG: str = "platform_config.yaml"
     # Base URL collectors use to reach this platform's own REST API.
     PLATFORM_INTERNAL_URL: str = "http://127.0.0.1:8000"
+    # Pipeline worker: seconds to sleep when no source has pending entities,
+    # and the number of entities taken from a source per batch.
+    WORKER_POLL_INTERVAL: float = 5.0
+    WORKER_BATCH_SIZE: int = 100
     # Remote TAXII credentials keyed by a collector's `credentials_env`, e.g.
     # STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER / ...__PASS.
     # Keys are lower-cased by pydantic-settings.

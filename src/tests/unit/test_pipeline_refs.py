@@ -164,7 +164,7 @@ async def test_new_values_get_deterministic_ids() -> None:
     entity = _indicator(bucket_id, object_marking_refs=[TLP_1_IDS["tlp:green"]])
 
     [out] = await _pipeline(
-        {"action": "replace", "field": "created_by_ref", "value": "Example Org"},
+        {"action": "set", "field": "created_by_ref", "value": "Example Org"},
         {"action": "add", "field": "object_marking_refs", "value": "tlp:amber"},
         {"action": "add", "field": "object_marking_refs", "value": "statement:New"},
     ).execute_pipeline([entity], RefResolver(repo, [bucket_id]))

@@ -42,6 +42,64 @@ pipelines:
           value: ACME Corp   # a readable value, not identity--…
 ```
 
+## Actions
+
+Each step applies one action to one field, optionally guarded by a `condition`. Fields have a
+fixed shape, and each action works on one kind of field:
+
+| Field                 | Kind   | Allowed actions  |
+|-----------------------|--------|------------------|
+| `labels`              | list   | `add`, `delete`  |
+| `object_marking_refs` | list   | `add`, `delete`  |
+| `confidence`          | scalar | `set`, `delete`  |
+| `created_by_ref`      | scalar | `set`, `delete`  |
+
+| Action   | Missing field | Existing field                                  |
+|----------|---------------|-------------------------------------------------|
+| `add`    | `[value]`     | append to the list (no duplicates)              |
+| `set`    | set value     | overwrite                                       |
+| `delete` | no-op         | remove the value from a list / remove the field |
+
+The registry is `FIELDS` in `pipeline/pipeline.py`. Startup rejects any of the following:
+- an unknown action (`replace` was renamed to `set`)
+- a field that isn't in the registry
+- an action that doesn't match the field's kind, e.g. `set` on `labels`
+
+If an object's data doesn't match the declared shape (a feed sends `labels: "x"`), the step
+raises `PipelineExecutionError`. The worker logs it and rolls back the batch instead of
+silently skipping the step.
+
+## Conditions
+
+A step runs only if its `condition` holds, or always when it has no condition. A condition is
+either an **expression** on one field or an **`and` / `or` group** of sub-conditions. Groups
+can be nested to any depth.
+
+| Expression `type` | True when                                                        |
+|-------------------|------------------------------------------------------------------|
+| `eq`              | the field equals `value`                                         |
+| `not_eq`          | the field does not equal `value`                                 |
+| `contains`        | `value` is in the field (an item of a list, or a substring)      |
+| `not_contains`    | `value` is not in the field                                      |
+
+`greater`, `lesser`, `greater_or_equal` and `lesser_or_eqal` exist in the model but aren't
+implemented yet, so startup rejects them.
+
+```yaml
+condition:                 # campaign AND (name == X OR labels contains apt)
+  type: and
+  condition:
+    - {field: type, type: eq, value: campaign}
+    - type: or
+      condition:
+        - {field: name, type: eq, value: X}
+        - {field: labels, type: contains, value: apt}
+```
+
+An empty `and` group is always true, and an empty `or` group is always false. Conditions
+see `created_by_ref` and `object_marking_refs` as readable values (see
+[Ref ↔ value resolution](#ref--value-resolution)).
+
 ## Startup validation
 
 When the worker loads its pipelines (`PipelineManager`), any of the following is a fatal
@@ -59,10 +117,19 @@ function the TAXII routes use for users.
 
 ## Writing to sinks
 
-The worker (`worker/__main__.py`, `Worker.process_batch`) handles one batch per pipeline and
-source bucket:
+The worker (`worker/__main__.py`) runs a polling loop:
 
-1. Acquire up to 10 `pending` entities from the source (`SELECT … FOR UPDATE SKIP LOCKED`,
+- Each **pass** (`Worker.run_once`) processes one batch for every (pipeline, source) pair, so
+  a large backlog in one source can't starve the others.
+- Passes run back to back while there is work. When a pass finds nothing pending, the worker
+  sleeps `STIX_HUB_WORKER_POLL_INTERVAL` seconds (default 5).
+- A batch that fails is logged and rolled back, and the other pipelines keep going.
+- On SIGINT/SIGTERM the worker finishes its current batch and exits. In `server-worker` mode,
+  it stops when uvicorn shuts down.
+
+Each batch (`Worker.process_batch`) does the following:
+
+1. Acquire up to `STIX_HUB_WORKER_BATCH_SIZE` (default 10) `pending` entities from the source (`SELECT … FOR UPDATE SKIP LOCKED`,
    so several workers can share a bucket) and mark them `processing`.
 2. Resolve every sink bucket. If one doesn't exist, the batch fails before anything is
    written (`SinkNotFoundError`).
@@ -161,7 +228,9 @@ result: the alternative leaks RED intel into GREEN.
 ## Not yet implemented
 
 - Merge-mode sinks are not deduplicated; every result is appended.
-- `Worker.run` processes one batch per source and exits; there is no polling loop yet.
+- Processing status is stored per entity, not per pipeline. If two pipelines read the same
+  source bucket, each entity is processed by only one of them, whichever acquires it first.
+- An entity whose processing keeps failing is retried on every pass.
 - There is no action to drop an entity, so TLP gating ("skip anything marked tlp:red") can't be
   expressed yet.
 - Ingest does not rewrite `created_by_ref` / `object_marking_refs` to platform IDs. The

@@ -170,6 +170,9 @@ Each pipeline can be driven by multiple workers. The system supports a single no
 
 ### Pipeline capabilities
 A pipeline can perform the following actions on an entity
+- `add` a value to a list field (`labels`, `object_marking_refs`)
+- `set` a scalar field (`confidence`, `created_by_ref`)
+- `delete` a value from a list, or a scalar field
 - Filter based on properties
   - Exact string match
   - Value occurs in list

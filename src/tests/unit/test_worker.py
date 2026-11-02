@@ -1,4 +1,7 @@
+import asyncio
+import contextlib
 import copy
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -175,3 +178,87 @@ def test_pipeline_cycle_across_pipelines_raises() -> None:
         PipelineValidationError, match="cycle: raw -> refined -> shared -> raw"
     ):
         PipelineManager(config)
+
+
+# --- polling loop ---
+
+
+def _factory(repo: InMemoryBucketRepository) -> Any:
+    @contextlib.asynccontextmanager
+    async def factory() -> AsyncIterator[InMemoryBucketRepository]:
+        yield repo
+
+    return factory
+
+
+async def test_run_drains_sources_then_stops() -> None:
+    config = _config([_pipeline(["raw"], ["refined"])])
+    worker = Worker(config, poll_interval=0.01, batch_size=4)
+    repo, _ = await _setup(worker, ("raw", "refined"), n_entities=10)
+    worker = Worker(config, poll_interval=0.01, batch_size=4, repo_factory=_factory(repo))
+
+    task = asyncio.create_task(worker.run())
+    for _ in range(100):
+        if len(await repo.get_entities(bucket_name="refined")) == 10:
+            break
+        await asyncio.sleep(0.01)
+    worker.stop()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert len(await repo.get_entities(bucket_name="refined")) == 10
+    sources = await repo.get_entities(bucket_name="raw")
+    assert {e.status for e in sources} == {ProcessingStatus.processed}
+
+
+async def test_run_picks_up_entities_arriving_while_idle() -> None:
+    config = _config([_pipeline(["raw"], ["refined"])])
+    worker = Worker(config)
+    repo, buckets = await _setup(worker, ("raw", "refined"), n_entities=0)
+    worker = Worker(config, poll_interval=0.01, repo_factory=_factory(repo))
+
+    task = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.05)  # idle: nothing pending yet
+    raw_id = buckets["raw"].id
+    assert raw_id is not None
+    await repo.add_entities(raw_id, [_indicator(raw_id, 1)])
+    for _ in range(100):
+        if await repo.get_entities(bucket_name="refined"):
+            break
+        await asyncio.sleep(0.01)
+    worker.stop()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert len(await repo.get_entities(bucket_name="refined")) == 1
+
+
+async def test_stop_wakes_an_idle_worker() -> None:
+    config = _config([_pipeline(["raw"], ["refined"])])
+    worker = Worker(config)
+    repo, _ = await _setup(worker, ("raw", "refined"), n_entities=0)
+    worker = Worker(config, poll_interval=60, repo_factory=_factory(repo))
+
+    task = asyncio.create_task(worker.run())
+    await asyncio.sleep(0.01)
+    worker.stop()
+    # Returns promptly instead of waiting out the 60s poll interval.
+    await asyncio.wait_for(task, timeout=1)
+
+
+async def test_failing_pipeline_does_not_stop_others() -> None:
+    config = _config(
+        [
+            _pipeline(["other"], ["missing"], name="broken"),
+            _pipeline(["raw"], ["refined"], name="ok"),
+        ],
+        buckets=("raw", "other", "refined", "missing"),
+    )
+    worker = Worker(config)
+    # "missing" is configured but never provisioned, so pipeline "broken" fails.
+    repo, buckets = await _setup(worker, ("raw", "other", "refined"), n_entities=3)
+    other_id = buckets["other"].id
+    assert other_id is not None
+    await repo.add_entities(other_id, [_indicator(other_id, 99)])
+    worker = Worker(config, repo_factory=_factory(repo))
+
+    assert await worker.run_once() == 3
+    assert len(await repo.get_entities(bucket_name="refined")) == 3

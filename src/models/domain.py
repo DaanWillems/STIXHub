@@ -57,8 +57,12 @@ class PipelineExpression(BaseModel):
     value: str
 
 class PipelineCondition(BaseModel):
+    """AND / OR group of sub-conditions, which may themselves be groups."""
+
     type: PipelineBooleanType
-    condition: list[PipelineConditionType]
+    condition: list["PipelineCondition | PipelineExpression"]
+
+PipelineCondition.model_rebuild()
 
 class PipelineStepConfig(BaseModel):
     action: str
