@@ -158,8 +158,9 @@ pulled are stored with `creator = collector:<name>`.
    UUID is in `uuids` are skipped. A new connector (no cursor) starts at
    `now - initial_lookback_days`.
 3. **Echo check.** Look up the event's sync record (see [Sync records](#sync-records)):
-   - origin `stixhub`, same `timestamp` as recorded: this is STIXHub's own push coming back.
-     Skip it, but still advance the cursor past it.
+   - origin `stixhub`, same `timestamp` as recorded, or no timestamp yet (an add still
+     being recorded): this is STIXHub's own push coming back. Skip it, but still advance
+     the cursor past it.
    - origin `stixhub`, different `timestamp`: a MISP user edited it. Set the record's origin
      to `misp` (MISP now owns the event) and ingest it like any other event.
    - no record, or origin `misp`: ingest it.
@@ -197,9 +198,9 @@ pulled are stored with `creator = collector:<name>`.
 
    Because pipelines keep `creator` (see [pipelines.md](pipelines.md#provenance)), this also
    excludes intel pulled from this MISP and then refined by pipelines.
-3. **Pick containers.** Of what's left, only `report` and `grouping` entities produce events.
-   Every other entity is either pushed as part of a container or skipped (loose objects are
-   a non-goal).
+3. **Pick containers.** Of what's left, only `report` and `grouping` entities produce events,
+   and within one page only the newest version of each. Every other entity is either
+   pushed as part of a container or skipped (loose objects are a non-goal).
 4. **Collect the event's objects.** Starting from the container, follow every top-level ref
    (`*_ref` and `*_refs` properties: `object_refs`, `created_by_ref`,
    `object_marking_refs`, a relationship's ends, a connection's addresses, …) until no new
@@ -216,11 +217,14 @@ pulled are stored with `creator = collector:<name>`.
    `other_stix_ids` as its `id`, and rewrite every ref in the bundle through that
    platform-ID → original-ID map. `misp-stix` gets MISP UUIDs back from STIX IDs, so this is
    what makes a round trip keep the same event, attribute and object UUIDs.
-6. **Convert.** Parse the bundle with `stix2` (`allow_custom=True`). Use `is_stix2_from_misp`
-   to choose `InternalSTIX2toMISPParser` (bundle produced by MISP) or
-   `ExternalSTIX2toMISPParser` (anything else). Run it with `single_event=True` and the
+6. **Convert.** Load the bundle with misp-stix's loader. Choose `InternalSTIX2toMISPParser`
+   when the container carries misp-stix's `misp:tool="MISP-STIX-Converter"` label (the
+   check `is_stix2_from_misp` does, without its warning on every call) and
+   `ExternalSTIX2toMISPParser` otherwise. Run it with `single_event=True` and the
    configured `distribution` / `sharing_group_id`. Set the event UUID to the UUID part of
    the container's original ID, so the same report always maps to the same MISP event.
+   `timestamp`, `publish_timestamp` and `published` are removed from the event: MISP
+   refuses an update that isn't newer than its copy, and publishing follows `publish`.
 7. **Upsert.** Decide from the sync record and from MISP:
 
    | Sync record | Event in MISP | Action |
@@ -259,10 +263,12 @@ never back.
 
 ### Error handling
 
-- `MispClient` wraps PyMISP and turns its results into exceptions. PyMISP often returns
-  `{"errors": …}` instead of raising, so the wrapper checks every response.
+- `PyMispClient` wraps PyMISP and turns its results into exceptions. PyMISP often returns
+  `{"errors": …}` instead of raising, so the wrapper checks every response. PyMISP
+  contacts MISP when it's constructed, so the client creates it lazily on the connector
+  thread, where a failure is retried like any other.
 - **Transient** (retried with the existing exponential back-off): connection errors,
-  timeouts, HTTP 5xx.
+  timeouts, HTTP 5xx. They surface as `MispUnavailable`, a `retry.TransientError`.
 - **Permanent** (logged, the step ends until the next cycle): HTTP 4xx, for example a bad
   API key or a missing permission. A 403 on one event during push skips that event instead.
 - After `max_retries`, the step logs an error and the connector waits for the next cycle.
@@ -378,10 +384,11 @@ internal network only):
 collectors/
   runner.py            # runs anything that matches the Collector protocol
   misp/
-    client.py          # MispClient: typed wrapper over PyMISP, raises on errors
-    convert.py         # misp-stix wrappers: event -> STIX objects, bundle -> MISPEvent
-    puller.py          # pull step
-    pusher.py          # push step, ID restoration
+    client.py          # MispApi protocol; PyMispClient: typed wrapper over PyMISP
+    convert.py         # misp-stix wrappers: event -> STIX objects, bundle -> event dict
+    common.py          # retries and registration shared by both steps
+    puller.py          # pull step, PullCursor
+    pusher.py          # push step, ref collection, ID restoration, ownership rules
     connector.py       # MispConnector: registration, cycle loop
 ```
 
@@ -390,11 +397,11 @@ collectors/
   `MispConnector` based on `config.type`.
 - `collectors` in `PlatformConfig` becomes `list[TaxiiCollectorConfig | MispConnectorConfig]`,
   told apart by `type`. A TAXII entry without `type` defaults to `taxii`.
-- `retry.is_transient` also treats `requests` connection errors and timeouts as transient,
-  since PyMISP uses `requests` rather than `httpx`.
-- Only `collectors/misp/client.py` and `collectors/misp/convert.py` import PyMISP,
-  `misp-stix` or `stix2`. The rest of the code works with plain dicts and our own types,
-  which keeps the untyped libraries behind a typed boundary for `mypy --strict`.
+- `retry.is_transient` also treats `retry.TransientError` as transient. PyMISP uses
+  `requests` rather than `httpx`, so `PyMispClient` turns its connection errors into one.
+- Only `collectors/misp/client.py` imports PyMISP and only `collectors/misp/convert.py`
+  imports misp-stix. The rest of the code works with plain dicts and our own types, which
+  keeps the untyped library behind a typed boundary for `mypy --strict`.
 
 ### Dependencies
 
@@ -406,68 +413,66 @@ dependencies = [
     ...
     "misp-stix>=2026.10,<2027",
     "pymisp>=2.5.34.1,<3",
-    "stix2>=3.0.2,<4",
 ]
 ```
 
-`pymisp` and `stix2` are listed directly because the connector imports them. Their ranges
-match what `misp-stix` requires. `uv.lock` is updated with them. mypy gets
-`ignore_missing_imports` overrides for `misp_stix_converter` and `stix2` (and for `pymisp`
-if its type information isn't enough). Moving the pin is a deliberate change, checked by the
-round-trip tests.
+`pymisp` is listed directly because the connector imports it; its range matches what
+`misp-stix` requires, and it ships type information. `uv.lock` is updated with them. mypy
+gets an `ignore_missing_imports` override for `misp_stix_converter`. Moving the pin is a
+deliberate change, checked by the round-trip tests.
 
 ## Acceptance Criteria
 
 ### Platform
 
-- [ ] `report`, `grouping`, `note`, `opinion`, `observed-data`, `sighting`, `process` and
+- [x] `report`, `grouping`, `note`, `opinion`, `observed-data`, `sighting`, `process` and
       `x-*` objects get `uuid5(type, original_id)` as platform ID; their `value` is
       unchanged.
-- [ ] Every type in the processor coverage table can be ingested.
-- [ ] Ingest rewrites the ref properties in the ref rewriting table to platform IDs, in
+- [x] Every type in the processor coverage table can be ingested.
+- [x] Ingest rewrites the ref properties in the ref rewriting table to platform IDs, in
       dependency order, and leaves other and unknown refs unchanged.
-- [ ] Custom types up to 128 characters long can be stored.
-- [ ] The new endpoints and repository methods work with both the database and the
+- [x] Custom types up to 128 characters long can be stored.
+- [x] The new endpoints and repository methods work with both the database and the
       in-memory repositories.
 
 ### Pull
 
-- [ ] A new connector ingests events from the last `initial_lookback_days` days.
-- [ ] Each event is submitted as one batch, with `creator = collector:<name>`.
-- [ ] A restart doesn't re-ingest events; events sharing a timestamp at the cursor are
+- [x] A new connector ingests events from the last `initial_lookback_days` days.
+- [x] Each event is submitted as one batch, with `creator = collector:<name>`.
+- [x] A restart doesn't re-ingest events; events sharing a timestamp at the cursor are
       neither skipped nor ingested twice.
-- [ ] An edited event is ingested again, and its report keeps its platform ID.
-- [ ] `published_only`, `tags` and `orgs` filters are applied.
-- [ ] An event that fails to convert is logged and skipped; the cycle continues.
-- [ ] An event STIXHub pushed is not pulled back unless it was edited in MISP afterwards.
+- [x] An edited event is ingested again, and its report keeps its platform ID.
+- [x] `published_only`, `tags` and `orgs` filters are applied.
+- [x] An event that fails to convert is logged and skipped; the cycle continues.
+- [x] An event STIXHub pushed is not pulled back unless it was edited in MISP afterwards.
 
 ### Push
 
-- [ ] A report or grouping in the source bucket becomes one MISP event, with everything it
+- [x] A report or grouping in the source bucket becomes one MISP event, with everything it
       references directly or indirectly (objects, relationships, authors, markings).
-- [ ] The MISP event's UUID is derived from the container's original ID; pushing again
+- [x] The MISP event's UUID is derived from the container's original ID; pushing again
       updates the same event instead of creating a new one.
-- [ ] An event pulled from MISP, converted and pushed back produces the same event,
+- [x] An event pulled from MISP, converted and pushed back produces the same event,
       attribute and object UUIDs.
-- [ ] Loose objects are not pushed.
-- [ ] Entities created by this connector's pull, by another connector on the same MISP URL,
+- [x] Loose objects are not pushed.
+- [x] Entities created by this connector's pull, by another connector on the same MISP URL,
       or by a creator in `exclude_creators` are not pushed.
-- [ ] Events STIXHub didn't create are never modified.
-- [ ] An event STIXHub created and a MISP user edited afterwards becomes MISP-owned and is
+- [x] Events STIXHub didn't create are never modified.
+- [x] An event STIXHub created and a MISP user edited afterwards becomes MISP-owned and is
       not updated again.
-- [ ] A crash between `add_event` and recording its timestamp doesn't create a duplicate or
+- [x] A crash between `add_event` and recording its timestamp doesn't create a duplicate or
       lose ownership.
-- [ ] `distribution`, `sharing_group_id` and `publish` are applied.
+- [x] `distribution`, `sharing_group_id` and `publish` are applied.
 
 ### Operation
 
-- [ ] Config errors in the validation table stop startup with the given error.
-- [ ] The API key is read from `STIX_HUB_MISP_CREDENTIALS__<ENV>__API_KEY` and never
+- [x] Config errors in the validation table stop startup with the given error.
+- [x] The API key is read from `STIX_HUB_MISP_CREDENTIALS__<ENV>__API_KEY` and never
       logged.
-- [ ] Transient MISP and platform errors are retried with back-off; permanent ones are
+- [x] Transient MISP and platform errors are retried with back-off; permanent ones are
       logged and don't stop later cycles.
-- [ ] Pull and push run on one thread per connector and stop within `shutdown_timeout`.
-- [ ] Existing TAXII collector configs keep working unchanged.
+- [x] Pull and push run on one thread per connector and stop within `shutdown_timeout`.
+- [x] Existing TAXII collector configs keep working unchanged.
 
 ## Testing
 
@@ -482,16 +487,18 @@ No test needs network access or a real MISP instance.
   - container collection
   - retry classification
   - config validation
-- **Conversion fixtures:** sample MISP events (attributes, objects, galaxies, TLP tags,
-  published and unpublished) converted with the real `misp-stix`.
+- **Conversion fixtures:** a sample MISP event (`tests/fixtures/misp/event.json`:
+  attributes, objects, TLP tag; published and unpublished) converted with the real
+  `misp-stix`, and every resulting object ingested without failures.
 - **Round trip:** fixture event → pull into an in-memory bucket → copy into the push bucket
-  → push into a `FakeMispClient` → same event, attribute and object UUIDs as the fixture.
-- **End to end:** like `test_taxii_collector_e2e.py`. A `FakeMispClient` plus the real
-  collector routes and in-memory repositories, run for several cycles in both directions,
-  checking that nothing is duplicated and nothing echoes.
+  → push into another fake MISP → same event, attribute and object UUIDs as the fixture.
+- **End to end:** like `test_taxii_collector_e2e.py`. `FakeMisp` (`tests/misp_support.py`)
+  plus the real collector routes and in-memory repositories, run for several cycles in
+  both directions, checking that nothing is duplicated and nothing echoes.
 - **Integration (PostgreSQL):** the new repository methods, the sync table and storing a
   long custom type name.
-- **Manual (documented, not in CI):** a pull/push run against a MISP instance in Docker.
+- **Manual (not in CI):** a pull/push run against a real MISP instance (for example the
+  MISP Docker images) whenever the misp-stix or PyMISP pin moves.
 
 ## Delivery Order
 
