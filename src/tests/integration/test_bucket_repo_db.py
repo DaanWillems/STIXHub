@@ -71,6 +71,19 @@ async def test_add_entities(bucket_repo: DatabaseBucketRepository):
     assert {e.stix_id for e in stored} == {"indicator--1", "indicator--2"}
 
 
+async def test_add_entities_stores_long_custom_type(
+    bucket_repo: DatabaseBucketRepository,
+) -> None:
+    bucket = await bucket_repo.save(Bucket(name="test-bucket"))
+    entity = make_entity(bucket.id, "x-misp-galaxy-cluster--1")
+    entity.type = "x-misp-galaxy-cluster-with-a-long-custom-name"
+
+    await bucket_repo.add_entities(bucket.id, [entity])
+
+    [stored] = await bucket_repo.get_entities(bucket_id=bucket.id)
+    assert stored.type == entity.type
+
+
 async def test_add_entities_raises_when_bucket_not_found(
     bucket_repo: DatabaseBucketRepository,
 ):

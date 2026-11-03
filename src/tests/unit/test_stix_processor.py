@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -170,12 +171,8 @@ def test_observed_data_uses_first_observed() -> None:
 
 
 def test_unimplemented_type_raises() -> None:
-    raw = _base(
-        "sighting",
-        "sighting--x",
-        sighting_of_ref="indicator--1",
-    )
-    with pytest.raises(NotImplementedError, match="sighting"):
+    raw = _base("language-content", "language-content--x", object_ref="x--1")
+    with pytest.raises(NotImplementedError, match="language-content"):
         process(raw)
 
 
@@ -191,7 +188,9 @@ def test_marking_definition_tlp1_keeps_well_known_id() -> None:
     )
     result = process(raw)
     assert result.value == "tlp:green"
-    assert result.platform_id == "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da"
+    assert (
+        result.platform_id == "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da"
+    )
 
 
 def test_marking_definition_tlp2_keeps_well_known_id() -> None:
@@ -208,7 +207,9 @@ def test_marking_definition_tlp2_keeps_well_known_id() -> None:
     )
     result = process(raw)
     assert result.value == "tlp:amber+strict"
-    assert result.platform_id == "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003"
+    assert (
+        result.platform_id == "marking-definition--939a9414-2ddd-4d32-a0cd-375ea402b003"
+    )
 
 
 def test_marking_definition_statement_gets_deterministic_id() -> None:
@@ -340,3 +341,128 @@ def test_relationship_without_id_map_keeps_refs() -> None:
 def test_id_map_does_not_touch_non_ref_objects() -> None:
     raw = _base("malware", "malware--original", name="WannaCry", is_family=False)
     assert process(raw, {"malware--original": "malware--x"}) == process(raw)
+
+
+# --- More SCOs ---
+
+
+@pytest.mark.parametrize(
+    ("type_", "fields", "value"),
+    [
+        ("ipv6-addr", {"value": "2001:db8::1"}, "2001:db8::1"),
+        ("mac-addr", {"value": "00:00:5e:00:53:01"}, "00:00:5e:00:53:01"),
+        ("email-addr", {"value": "a@example.com"}, "a@example.com"),
+        ("autonomous-system", {"number": 64496}, "64496"),
+        ("file", {"hashes": {"MD5": "m", "SHA-256": "s"}, "name": "a"}, "s"),
+        ("file", {"name": "evil.exe"}, "evil.exe"),
+        ("artifact", {"hashes": {"SHA-1": "h"}}, "h"),
+        ("directory", {"path": "/tmp"}, "/tmp"),
+        ("mutex", {"name": "Global\\x"}, "Global\\x"),
+        (
+            "software",
+            {"vendor": "ACME", "name": "Tool", "version": "1.0"},
+            "ACME Tool 1.0",
+        ),
+        ("user-account", {"account_type": "unix", "user_id": "1001"}, "unix 1001"),
+        (
+            "windows-registry-key",
+            {"key": "HKEY_LOCAL_MACHINE\\x"},
+            "HKEY_LOCAL_MACHINE\\x",
+        ),
+        ("x509-certificate", {"serial_number": "01:02"}, "01:02"),
+        ("email-message", {"subject": "Invoice", "is_multipart": False}, "Invoice"),
+        (
+            "network-traffic",
+            {"dst_ref": "ipv4-addr--d", "dst_port": 443, "protocols": ["tcp"]},
+            "* -> ipv4-addr--d:443 tcp",
+        ),
+    ],
+)
+def test_sco_values(type_: str, fields: dict[str, object], value: str) -> None:
+    result = process(_base(type_, f"{type_}--original", **fields))
+    assert result.value == value
+    assert (
+        result.platform_id
+        == process(_base(type_, f"{type_}--other", **fields)).platform_id
+    )
+
+
+def test_sco_without_identifying_field_raises() -> None:
+    with pytest.raises(ValueError, match="hashes.SHA-256"):
+        process(_base("file", "file--original", size=10))
+
+
+def test_network_traffic_refs_rewritten_through_id_map() -> None:
+    raw = _base("network-traffic", "network-traffic--o", dst_ref="ipv4-addr--orig")
+    result = process(raw, {"ipv4-addr--orig": "ipv4-addr--platform"})
+    assert result.object["dst_ref"] == "ipv4-addr--platform"
+    assert (
+        result.platform_id
+        == process({**raw, "dst_ref": "ipv4-addr--platform"}).platform_id
+    )
+
+
+# --- Occurrences: ID from the original ID ---
+
+OCCURRENCES = [
+    _base("report", "report--1", name="Phishing", object_refs=["x--1"]),
+    _base(
+        "grouping", "grouping--1", context="suspicious-activity", object_refs=["x--1"]
+    ),
+    _base("note", "note--1", content="text", object_refs=["x--1"]),
+    _base("opinion", "opinion--1", opinion="agree", object_refs=["x--1"]),
+    _base("observed-data", "observed-data--1", first_observed="2024-01-01T00:00:00Z"),
+    _base("sighting", "sighting--1", sighting_of_ref="indicator--1"),
+    _base("process", "process--1", pid=4),
+    _base("x-misp-attribute", "x-misp-attribute--1", x_misp_value="free text"),
+]
+
+
+@pytest.mark.parametrize("raw", OCCURRENCES, ids=lambda raw: raw["type"])
+def test_occurrence_id_derives_from_original_id(raw: dict[str, object]) -> None:
+    result = process(raw)
+    expected = f"{raw['type']}--{uuid.uuid5(STIX_NAMESPACE, json.dumps({'original_id': raw['id']}, separators=(',', ':')))}"
+    assert result.platform_id == expected
+    # Another occurrence with the same content stays separate ...
+    assert process({**raw, "id": f"{raw['type']}--2"}).platform_id != expected
+    # ... and an edit keeps the ID.
+    assert process({**raw, "description": "edited"}).platform_id == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "value"),
+    [
+        (
+            _base(
+                "grouping", "grouping--1", name="Event", context="suspicious-activity"
+            ),
+            "Event",
+        ),
+        (
+            _base("grouping", "grouping--1", context="suspicious-activity"),
+            "suspicious-activity",
+        ),
+        (
+            _base("sighting", "sighting--1", sighting_of_ref="indicator--1"),
+            "indicator--1",
+        ),
+        (
+            _base("process", "process--1", command_line="cmd.exe /c x", pid=4),
+            "cmd.exe /c x",
+        ),
+        (_base("process", "process--1"), "process--1"),
+        (
+            _base("x-misp-object", "x-misp-object--1", name="bank-account"),
+            "bank-account",
+        ),
+        (_base("x-misp-attribute", "x-misp-attribute--1", x_misp_value="text"), "text"),
+        (_base("x-custom", "x-custom--1"), "x-custom--1"),
+    ],
+)
+def test_occurrence_values(raw: dict[str, object], value: str) -> None:
+    assert process(raw).value == value
+
+
+def test_platform_id_rejects_occurrence_types() -> None:
+    with pytest.raises(ValueError, match="report"):
+        platform_id("report", "Phishing")

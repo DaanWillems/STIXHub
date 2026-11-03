@@ -34,9 +34,24 @@ class StixType(Enum):
     Vulnerability = "vulnerability"
 
     # --- SCOs ---
+    Artifact = "artifact"
+    AutonomousSystem = "autonomous-system"
+    Directory = "directory"
     DomainName = "domain-name"
+    EmailAddr = "email-addr"
+    EmailMessage = "email-message"
+    File = "file"
     IPV4Addr = "ipv4-addr"
+    IPV6Addr = "ipv6-addr"
+    MACAddr = "mac-addr"
+    Mutex = "mutex"
+    NetworkTraffic = "network-traffic"
+    Process = "process"
+    Software = "software"
     URL = "url"
+    UserAccount = "user-account"
+    WindowsRegistryKey = "windows-registry-key"
+    X509Certificate = "x509-certificate"
 
     # --- SMOs ---
     MarkingDefinition = "marking-definition"
@@ -44,6 +59,9 @@ class StixType(Enum):
     # --- SROs ---
     Relationship = "relationship"
     Sighting = "sighting"
+
+    # Custom ``x-*`` types (e.g. MISP's x-misp-attribute) are stored as well,
+    # but are not listed here.
 
     # --- Platform-internal meta types ---
     Object = "object"
@@ -72,7 +90,26 @@ SDO_TYPES = [
     StixType.Vulnerability,
 ]
 
-SCO_TYPES = [StixType.DomainName, StixType.IPV4Addr, StixType.URL]
+SCO_TYPES = [
+    StixType.Artifact,
+    StixType.AutonomousSystem,
+    StixType.Directory,
+    StixType.DomainName,
+    StixType.EmailAddr,
+    StixType.EmailMessage,
+    StixType.File,
+    StixType.IPV4Addr,
+    StixType.IPV6Addr,
+    StixType.MACAddr,
+    StixType.Mutex,
+    StixType.NetworkTraffic,
+    StixType.Process,
+    StixType.Software,
+    StixType.URL,
+    StixType.UserAccount,
+    StixType.WindowsRegistryKey,
+    StixType.X509Certificate,
+]
 
 
 class Base(DeclarativeBase):
@@ -100,7 +137,8 @@ class StixEntityModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     bucket_id: Mapped[int] = mapped_column(ForeignKey("bucket_model.id"))
     stix_id: Mapped[str]
-    type: Mapped[str] = mapped_column(String(30))
+    # Wide enough for custom type names such as x-misp-galaxy-cluster.
+    type: Mapped[str] = mapped_column(String(128))
     spec_version: Mapped[str] = mapped_column(String(30))
     creator: Mapped[str] = mapped_column(nullable=False)
     value: Mapped[str] = mapped_column(nullable=False)

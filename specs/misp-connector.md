@@ -200,14 +200,18 @@ pulled are stored with `creator = collector:<name>`.
 3. **Pick containers.** Of what's left, only `report` and `grouping` entities produce events.
    Every other entity is either pushed as part of a container or skipped (loose objects are
    a non-goal).
-4. **Collect the event's objects.** For each container, look up through
-   `POST /collectors/{push_id}/entities/lookup`, in the source bucket only:
-   - the objects in its `object_refs`
-   - their `created_by_ref` and `object_marking_refs`
-   - relationships whose `source_ref` and `target_ref` are both in the container
+4. **Collect the event's objects.** Starting from the container, follow every top-level ref
+   (`*_ref` and `*_refs` properties: `object_refs`, `created_by_ref`,
+   `object_marking_refs`, a relationship's ends, a connection's addresses, …) until no new
+   refs turn up. Refs are looked up through `POST /collectors/{push_id}/entities/lookup`,
+   in the source bucket only; a ref matches an entity's platform ID or one of its
+   `other_stix_ids`. A ref to an object already in the bundle (by original or platform ID)
+   isn't looked up again.
 
    The lookup returns the **newest** version (highest `id`) of each object. Refs that
-   don't resolve are dropped from the bundle and logged. They are not retried.
+   don't resolve are left out of the bundle and logged. They are not retried.
+   Relationships are included when a collected object references them; misp-stix lists an
+   event's relationships in its report's `object_refs`.
 5. **Restore original IDs.** For every object in the bundle, use the first entry of
    `other_stix_ids` as its `id`, and rewrite every ref in the bundle through that
    platform-ID → original-ID map. `misp-stix` gets MISP UUIDs back from STIX IDs, so this is
@@ -299,16 +303,17 @@ handle yet. SCO values follow the STIX 2.1 ID-contributing properties:
 | `ipv6-addr`, `mac-addr`, `email-addr` | `value` |
 | `autonomous-system` | `number` |
 | `file` | first of `hashes.SHA-256`, `hashes.SHA-1`, `hashes.MD5`, then `name` |
-| `artifact` | first of the hashes as for `file`, then `payload_bin` |
+| `artifact` | first of the hashes as for `file`, then `url`, then `payload_bin` |
 | `directory` | `path` |
 | `mutex` | `name` |
-| `software` | `name`, plus `version` / `vendor` when present |
+| `software` | `vendor`, `name`, `version` joined (those present) |
 | `user-account` | `account_type`, `user_id`, `account_login` joined |
 | `windows-registry-key` | `key` |
 | `x509-certificate` | first of the hashes, then `serial_number` |
-| `network-traffic` | `src_ref`, `dst_ref`, `src_port`, `dst_port`, `protocols` joined |
-| `email-message` | `subject`, else `from_ref` |
+| `network-traffic` | `<src_ref>:<src_port> -> <dst_ref>:<dst_port> <protocols>` (`*` for a missing side) |
+| `email-message` | `subject`, else `message_id`, else `from_ref` |
 | `sighting` | `sighting_of_ref` (ID from original ID, see above) |
+| `grouping` | `name`, else `context` (ID from original ID) |
 | `process` | `command_line`, else `pid`, else the original ID (ID from original ID) |
 | custom `x-*` | first of `name`, `x_misp_value`, `x_misp_name`, else the original ID |
 
@@ -317,23 +322,27 @@ prefix rather than listed.
 
 ### Ref rewriting
 
-`REF_PROPERTIES` only rewrites a relationship's `source_ref` / `target_ref` today. Ingest
-rewrites these refs to platform IDs too, so containers and SCOs keep pointing at objects in
-the bucket:
+Ingest rewrites only the refs that **contribute to an object's platform ID or value**, so the
+same fact gets the same ID whatever IDs its source used:
 
-| Type | Ref properties |
+| Type | Ref properties rewritten |
 |---|---|
-| `report`, `grouping`, `note`, `opinion`, `observed-data` | `object_refs` (list) |
-| `sighting` | `sighting_of_ref`, `observed_data_refs`, `where_sighted_refs` |
+| `relationship` | `source_ref`, `target_ref` (as today) |
 | `network-traffic` | `src_ref`, `dst_ref` |
-| `email-message` | `from_ref`, `to_refs`, `cc_refs`, `bcc_refs` |
-| `file` | `parent_directory_ref`, `contains_refs` |
+| `email-message` | `from_ref` |
 
-`REF_PROPERTIES` grows to support list-valued properties. Objects with refs are still
-processed after the objects they point at, and refs that point at nothing known are kept
-unchanged. `created_by_ref` and `object_marking_refs` are **not** rewritten; ref resolution
-for pipelines already covers them through `other_stix_ids` (see
-[pipelines.md](pipelines.md#ref--value-resolution)).
+An object is processed after the objects in the same batch that it references (in
+dependency order, so a relationship to a connection waits for the connection, which waits
+for its addresses). Refs to objects outside the batch are resolved against the bucket
+through `other_stix_ids`, and refs found nowhere are kept unchanged.
+
+All other refs keep their **original IDs**, in particular a container's `object_refs`, and
+`created_by_ref` / `object_marking_refs` as today. They resolve through `other_stix_ids`
+(see [pipelines.md](pipelines.md#ref--value-resolution)). Keeping them matters for push:
+one IP address in two MISP events is one platform object, but two MISP attributes with
+different UUIDs. A container that still names the original IDs it was published with lets
+push find exactly the attribute that belongs to that event, instead of guessing between
+copies that share a platform ID.
 
 ### Database
 
@@ -415,8 +424,8 @@ round-trip tests.
       `x-*` objects get `uuid5(type, original_id)` as platform ID; their `value` is
       unchanged.
 - [ ] Every type in the processor coverage table can be ingested.
-- [ ] Ingest rewrites the ref properties in the ref rewriting table to platform IDs, and
-      leaves unknown refs unchanged.
+- [ ] Ingest rewrites the ref properties in the ref rewriting table to platform IDs, in
+      dependency order, and leaves other and unknown refs unchanged.
 - [ ] Custom types up to 128 characters long can be stored.
 - [ ] The new endpoints and repository methods work with both the database and the
       in-memory repositories.
@@ -434,8 +443,8 @@ round-trip tests.
 
 ### Push
 
-- [ ] A report or grouping in the source bucket becomes one MISP event, with the objects it
-      references, their authors and markings, and the relationships between them.
+- [ ] A report or grouping in the source bucket becomes one MISP event, with everything it
+      references directly or indirectly (objects, relationships, authors, markings).
 - [ ] The MISP event's UUID is derived from the container's original ID; pushing again
       updates the same event instead of creating a new one.
 - [ ] An event pulled from MISP, converted and pushed back produces the same event,
