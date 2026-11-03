@@ -8,7 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from collectors.misp.client import MispEventRef, MispRequestError, index_position
+from collectors.misp.client import (
+    MispEventRef,
+    MispRequestError,
+    MispUnavailable,
+    index_position,
+)
 from collectors.misp.connector import MispConnector
 from models.domain import MispConnectorConfig
 from tests.platform_support import Platform
@@ -19,6 +24,8 @@ EVENT_UUID = "5e8d5c5a-0b1c-4b8e-9d2a-1a2b3c4d5e6f"
 T0 = 1_790_000_000
 # The MISP instance of connector_config(); sync records are keyed by it.
 INSTANCE = "https://misp.example.org"
+# FakeMisp's organisations: STIXHub's API user's, and everybody else's.
+OUR_ORG, THEIR_ORG = "1", "2"
 NOW = datetime.fromtimestamp(T0, UTC)
 
 
@@ -71,6 +78,8 @@ class FakeMisp:
 
     events: dict[str, dict[str, Any]] = field(default_factory=dict)
     clock: int = T0
+    # Create the next added event, then fail as if the response got lost.
+    lose_next_add_response: bool = False
     index_filters: list[dict[str, Any]] = field(default_factory=list)
     writes: list[tuple[str, str]] = field(default_factory=list)
 
@@ -78,9 +87,9 @@ class FakeMisp:
         self.clock += 1
         return self.clock
 
-    def seed(self, event: dict[str, Any]) -> None:
-        """Add an event as if a MISP user created it."""
-        self.events[event["uuid"]] = copy.deepcopy(event)
+    def seed(self, event: dict[str, Any], org: str = THEIR_ORG) -> None:
+        """Add an event as if a user of ``org`` created it."""
+        self.events[event["uuid"]] = {**copy.deepcopy(event), "orgc_id": org}
         self.clock = max(self.clock, int(event["timestamp"]))
 
     def edit(self, uuid: str, *, republish: bool = False, **changes: Any) -> None:
@@ -143,7 +152,11 @@ class FakeMisp:
         self.events[event["uuid"]] = {
             **copy.deepcopy(event),
             "timestamp": str(timestamp),
+            "orgc_id": OUR_ORG,
         }
+        if self.lose_next_add_response:
+            self.lose_next_add_response = False
+            raise MispUnavailable("Read timed out")
         return timestamp
 
     def update_event(self, uuid: str, event: dict[str, Any]) -> int:
@@ -151,8 +164,15 @@ class FakeMisp:
             raise MispRequestError(404, "Invalid event")
         self.writes.append(("update", uuid))
         timestamp = self._tick()
-        self.events[uuid] = {**copy.deepcopy(event), "timestamp": str(timestamp)}
+        self.events[uuid] = {
+            **copy.deepcopy(event),
+            "timestamp": str(timestamp),
+            "orgc_id": self.events[uuid]["orgc_id"],
+        }
         return timestamp
+
+    def own_org_id(self) -> str:
+        return OUR_ORG
 
     def publish_event(self, uuid: str) -> None:
         self.writes.append(("publish", uuid))

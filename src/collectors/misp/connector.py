@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-from collectors.misp.client import MispApi, MispRequestError
+from collectors.misp.client import MispApi, MispRequestError, MispUnavailable
 from collectors.misp.common import RegistrationError, Retrier
 from collectors.misp.puller import MispPuller
 from collectors.misp.pusher import MispPusher
@@ -65,7 +65,12 @@ class MispConnector:
                 step.run_once()
             except CollectorStopped:
                 raise
-            except (RetriesExhausted, MispRequestError, httpx.HTTPStatusError) as exc:
+            except (
+                RetriesExhausted,
+                MispRequestError,
+                MispUnavailable,
+                httpx.HTTPStatusError,
+            ) as exc:
                 logger.error(
                     "[%s] %s failed: %s; retrying next cycle",
                     self.config.name,

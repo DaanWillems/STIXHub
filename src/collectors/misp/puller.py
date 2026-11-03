@@ -9,12 +9,22 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from functools import partial
 
-from collectors.misp.client import MispApi, MispEventRef, index_position
+from collectors.misp.client import (
+    MispApi,
+    MispEventRef,
+    created_by,
+    index_position,
+)
 from collectors.misp.common import Retrier, register
 from collectors.misp.convert import ConversionError, event_to_stix
 from collectors.platform_client import PlatformClient
 from collectors.retry import CollectorStopped
-from models.domain import MispConnectorConfig, MispEventOrigin, MispPullConfig
+from models.domain import (
+    MispConnectorConfig,
+    MispEventOrigin,
+    MispEventRecord,
+    MispPullConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,16 +148,9 @@ class MispPuller:
             if self._stop.is_set():
                 raise CollectorStopped
             record = records.get(ref.uuid)
-            if record is not None and record.origin is MispEventOrigin.stixhub:
-                if record.misp_timestamp in (None, ref.timestamp):
-                    # STIXHub's own push (or one still being recorded).
-                    self._advance(collector_id, ref)
-                    continue
-                logger.info(
-                    "[%s] event %s was edited in MISP; MISP owns it now",
-                    self._name,
-                    ref.uuid,
-                )
+            if record is not None and self._is_own_push(record, ref):
+                self._advance(collector_id, ref)
+                continue
             outcome = self._ingest(collector_id, ref)
             if outcome is _Outcome.REJECTED:
                 return ingested
@@ -157,6 +160,32 @@ class MispPuller:
         if candidates:
             logger.info("[%s] pulled %d MISP events", self._name, ingested)
         return ingested
+
+    def _is_own_push(self, record: MispEventRecord, ref: MispEventRef) -> bool:
+        """Whether the event is STIXHub's own push coming back (not new intel)."""
+        if record.origin is not MispEventOrigin.stixhub:
+            return False
+        if record.misp_timestamp == ref.timestamp:
+            return True
+        if record.misp_timestamp is None:
+            # A push that never got recorded: the event is STIXHub's if
+            # STIXHub's organisation created it.
+            event = self._retry(
+                lambda: self._misp.get_event(ref.uuid), f"get event {ref.uuid}"
+            )
+            org_id = self._retry(self._misp.own_org_id, "get own organisation")
+            if event is not None and created_by(event, org_id):
+                self._retry(
+                    lambda: self._platform.put_misp_event(
+                        self._name, ref.uuid, MispEventOrigin.stixhub, ref.timestamp
+                    ),
+                    f"adopt event {ref.uuid}",
+                )
+                return True
+        logger.info(
+            "[%s] event %s was changed in MISP; MISP owns it now", self._name, ref.uuid
+        )
+        return False
 
     def _ingest(self, collector_id: int, ref: MispEventRef) -> "_Outcome":
         """Ingest one event."""

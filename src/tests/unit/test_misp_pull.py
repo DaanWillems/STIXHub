@@ -4,9 +4,11 @@ from collectors.misp.convert import ConversionError, event_to_stix
 from collectors.misp.puller import MispPuller, PullCursor
 from models.domain import MispEventOrigin, MispEventSync
 from tests.misp_support import (
-    INSTANCE,
     EVENT_UUID,
+    INSTANCE,
+    OUR_ORG,
     T0,
+    THEIR_ORG,
     FakeMisp,
     connector_config,
     fixture_event,
@@ -117,6 +119,25 @@ async def test_own_push_is_not_pulled_back_until_edited_in_misp() -> None:
     assert pull.run_once() == 1
     record = (await platform.sync.get_many(INSTANCE, [EVENT_UUID]))[EVENT_UUID]
     assert record.origin is MispEventOrigin.misp
+
+
+@pytest.mark.parametrize(("org", "pulled"), [(OUR_ORG, 0), (THEIR_ORG, 1)])
+async def test_unrecorded_push_is_adopted_only_if_ours(org: str, pulled: int) -> None:
+    """A pending record means an add whose outcome was never recorded."""
+    misp = FakeMisp()
+    misp.seed(small_event(EVENT_UUID, "Pushed?", T0), org=org)
+    pull, platform = await _pull(misp)
+    await platform.sync.upsert(
+        MispEventSync(INSTANCE, EVENT_UUID, MispEventOrigin.stixhub)
+    )
+
+    assert pull.run_once() == pulled
+
+    record = (await platform.sync.get_many(INSTANCE, [EVENT_UUID]))[EVENT_UUID]
+    assert record.misp_timestamp == T0
+    assert record.origin is (
+        MispEventOrigin.stixhub if pulled == 0 else MispEventOrigin.misp
+    )
 
 
 async def test_unconvertible_event_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:

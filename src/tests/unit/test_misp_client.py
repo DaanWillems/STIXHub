@@ -35,6 +35,9 @@ class StubPyMisp:
     def add_event(self, event: dict[str, Any], **kwargs: Any) -> Any:
         return self._respond("add_event", event=event, **kwargs)
 
+    def get_user(self, user: str, **kwargs: Any) -> Any:
+        return self._respond("get_user", user=user, **kwargs)
+
 
 def _client(answer: Any) -> tuple[PyMispClient, StubPyMisp]:
     stub = StubPyMisp(answer)
@@ -86,6 +89,13 @@ def test_event_is_unwrapped_and_missing_event_is_none() -> None:
         _client({"errors": (404, {"message": "Invalid event"})})[0].get_event("e1")
         is None
     )
+
+
+def test_own_organisation_is_looked_up_once() -> None:
+    client, stub = _client({"User": {"id": "5", "org_id": 3}})
+
+    assert client.own_org_id() == client.own_org_id() == "3"
+    assert [name for name, _ in stub.calls] == ["get_user"]
 
 
 def test_add_returns_the_new_timestamp() -> None:

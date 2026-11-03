@@ -77,6 +77,15 @@ class MispApi(Protocol):
 
     def publish_event(self, uuid: str) -> None: ...
 
+    def own_org_id(self) -> str:
+        """The organisation of the API key's user: the creator of our events."""
+
+
+def created_by(event: dict[str, Any], org_id: str) -> bool:
+    """Whether organisation ``org_id`` created ``event``."""
+    creator = event.get("orgc_id") or event.get("Orgc", {}).get("id")
+    return str(creator) == org_id
+
 
 def event_timestamp(event: dict[str, Any]) -> int:
     """The ``timestamp`` of an event dict, wrapped in ``Event`` or not."""
@@ -104,6 +113,7 @@ class PyMispClient:
         self._timeout = timeout
         self._connect = connect
         self._misp: PyMISP | None = None
+        self._org_id: str | None = None
 
     def _api(self) -> PyMISP:
         if self._misp is None:
@@ -206,6 +216,13 @@ class PyMispClient:
     def publish_event(self, uuid: str) -> None:
         api = self._api()
         self._call(f"publish event {uuid}", api.publish, uuid)
+
+    def own_org_id(self) -> str:
+        if self._org_id is None:
+            api = self._api()
+            me = self._call("get own user", api.get_user, "me", pythonify=False)
+            self._org_id = str(me.get("User", me)["org_id"])
+        return self._org_id
 
     def close(self) -> None:
         # PyMISP has no close(); dropping it releases its HTTP session.

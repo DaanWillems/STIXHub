@@ -5,9 +5,11 @@ import pytest
 from collectors.misp.pusher import MispPusher
 from models.domain import MispEventOrigin, MispEventSync
 from tests.misp_support import (
-    INSTANCE,
     EVENT_UUID,
+    INSTANCE,
+    OUR_ORG,
     T0,
+    THEIR_ORG,
     FakeMisp,
     all_uuids,
     connector_config,
@@ -154,22 +156,25 @@ REMOTE_TS = T0 + 5
     ("record", "in_misp", "write", "owner"),
     [
         # STIXHub creates events nobody else has.
-        (None, False, "add", STIXHUB),
-        (None, True, None, None),
-        # A pending record: an earlier add crashed before or after MISP got it.
-        ((STIXHUB, None), False, "add", STIXHUB),
-        ((STIXHUB, None), True, "update", STIXHUB),
+        (None, None, "add", STIXHUB),
+        (None, THEIR_ORG, None, None),
+        # A pending record: an earlier add crashed before or after MISP got
+        # it. Only an event STIXHub's organisation created is adopted.
+        ((STIXHUB, None), None, "add", STIXHUB),
+        ((STIXHUB, None), OUR_ORG, "update", STIXHUB),
+        ((STIXHUB, None), THEIR_ORG, None, MISP),
         # STIXHub updates its own events until someone edits them in MISP.
-        ((STIXHUB, REMOTE_TS), True, "update", STIXHUB),
-        ((STIXHUB, REMOTE_TS - 1), True, None, MISP),
-        ((STIXHUB, REMOTE_TS), False, None, STIXHUB),
-        ((MISP, REMOTE_TS), True, None, MISP),
+        ((STIXHUB, REMOTE_TS), OUR_ORG, "update", STIXHUB),
+        ((STIXHUB, REMOTE_TS - 1), OUR_ORG, None, MISP),
+        ((STIXHUB, REMOTE_TS), None, None, STIXHUB),
+        ((MISP, REMOTE_TS), THEIR_ORG, None, MISP),
     ],
     ids=[
         "new",
         "exists-elsewhere",
         "pending-absent",
-        "pending-present",
+        "pending-ours",
+        "pending-theirs",
         "own",
         "edited-in-misp",
         "deleted-in-misp",
@@ -178,14 +183,15 @@ REMOTE_TS = T0 + 5
 )
 async def test_ownership_rules(
     record: tuple[MispEventOrigin, int | None] | None,
-    in_misp: bool,
+    in_misp: str | None,
     write: str | None,
     owner: MispEventOrigin | None,
 ) -> None:
+    """``in_misp`` is the organisation that created the event in MISP, if any."""
     misp = FakeMisp()
     push, platform = await _push(misp)
-    if in_misp:
-        misp.seed(small_event(REPORT, "Existing", REMOTE_TS))
+    if in_misp is not None:
+        misp.seed(small_event(REPORT, "Existing", REMOTE_TS), org=in_misp)
     if record is not None:
         await platform.sync.upsert(MispEventSync(INSTANCE, REPORT, *record))
     await platform.ingest("refined", _feed(), creator="feed")
@@ -195,3 +201,16 @@ async def test_ownership_rules(
     assert misp.writes == ([(write, REPORT)] if write else [])
     found = await _record(platform)
     assert (found.origin if found else None) is owner
+
+
+async def test_add_whose_response_got_lost_is_adopted_not_repeated() -> None:
+    misp = FakeMisp(lose_next_add_response=True)
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+
+    assert push.run_once() == 1
+
+    assert misp.writes == [("add", REPORT)]
+    assert await _record(platform) == MispEventSync(
+        INSTANCE, REPORT, STIXHUB, int(misp.events[REPORT]["timestamp"])
+    )

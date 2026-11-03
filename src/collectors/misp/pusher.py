@@ -7,7 +7,13 @@ from collections.abc import Iterator
 from functools import partial
 from typing import Any
 
-from collectors.misp.client import MispApi, MispRequestError, event_timestamp
+from collectors.misp.client import (
+    MispApi,
+    MispRequestError,
+    MispUnavailable,
+    created_by,
+    event_timestamp,
+)
 from collectors.misp.common import Retrier, register
 from collectors.misp.convert import ConversionError, stix_to_event
 from collectors.platform_client import PlatformClient
@@ -205,10 +211,9 @@ class MispPusher:
 
         try:
             if remote is None:
-                self._record(event_uuid, None)  # pending: survives a crash mid-add
-                timestamp = self._retry(
-                    lambda: self._misp.add_event(event), f"add event {event_uuid}"
-                )
+                timestamp = self._add(event_uuid, event)
+                if timestamp is None:
+                    return 0
             else:
                 timestamp = self._retry(
                     lambda: self._misp.update_event(event_uuid, event),
@@ -231,6 +236,52 @@ class MispPusher:
             logger.error("[%s] MISP refused event %s: %s", self._name, event_uuid, exc)
             return 0
         return 1
+
+    def _add(self, event_uuid: str, event: dict[str, Any]) -> int | None:
+        """Create the event; its timestamp, or ``None`` if STIXHub doesn't own it.
+
+        Adding isn't idempotent, so it is never retried blindly: after a
+        failure, whether MISP created the event decides what happens next.
+        """
+        self._record(event_uuid, None)  # pending: survives a crash mid-add
+        try:
+            return self._misp.add_event(event)
+        except (MispUnavailable, MispRequestError) as exc:
+            failure: MispUnavailable | MispRequestError = exc
+        remote = self._retry(
+            lambda: self._misp.get_event(event_uuid), f"get event {event_uuid}"
+        )
+        if remote is None:
+            # Nothing was created: a transient failure is retried next cycle,
+            # a refusal is final.
+            raise failure
+        if self._is_ours(remote):
+            logger.info(
+                "[%s] adding event %s failed (%s) but MISP created it; adopting it",
+                self._name,
+                event_uuid,
+                failure,
+            )
+            return event_timestamp(remote)
+        self._hand_to_misp(event_uuid, event_timestamp(remote))
+        return None
+
+    def _is_ours(self, event: dict[str, Any]) -> bool:
+        org_id = self._retry(self._misp.own_org_id, "get own organisation")
+        return created_by(event, org_id)
+
+    def _hand_to_misp(self, event_uuid: str, timestamp: int) -> None:
+        logger.warning(
+            "[%s] event %s belongs to someone else in MISP; STIXHub won't write it",
+            self._name,
+            event_uuid,
+        )
+        self._retry(
+            lambda: self._platform.put_misp_event(
+                self._name, event_uuid, MispEventOrigin.misp, timestamp
+            ),
+            f"hand event {event_uuid} to MISP",
+        )
 
     def _may_write(
         self,
@@ -260,7 +311,11 @@ class MispPusher:
             return False
         remote_timestamp = event_timestamp(remote)
         if record.misp_timestamp is None:
-            # An earlier add reached MISP but wasn't recorded: adopt it.
+            # An earlier add may have reached MISP without being recorded:
+            # adopt the event if STIXHub's organisation created it.
+            if not self._is_ours(remote):
+                self._hand_to_misp(event_uuid, remote_timestamp)
+                return False
             self._record(event_uuid, remote_timestamp)
             return True
         if record.misp_timestamp != remote_timestamp:
