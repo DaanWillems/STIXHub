@@ -220,6 +220,13 @@ class MispPusher:
                     lambda: self._misp.publish_event(event_uuid),
                     f"publish event {event_uuid}",
                 )
+                # Record the event as published, whatever publishing did to
+                # its timestamp, so it isn't mistaken for an edit in MISP.
+                published = self._retry(
+                    lambda: self._misp.get_event(event_uuid), f"get event {event_uuid}"
+                )
+                if published is not None:
+                    self._record(event_uuid, event_timestamp(published))
         except MispRequestError as exc:
             logger.error("[%s] MISP refused event %s: %s", self._name, event_uuid, exc)
             return 0

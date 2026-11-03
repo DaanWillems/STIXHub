@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from functools import partial
 
-from collectors.misp.client import MispApi, MispEventRef
+from collectors.misp.client import MispApi, MispEventRef, index_position
 from collectors.misp.common import Retrier, register
 from collectors.misp.convert import ConversionError, event_to_stix
 from collectors.platform_client import PlatformClient
@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PullCursor:
-    """Where pulling resumes.
+    """Where pulling resumes: an index position (see ``index_position``).
 
-    MISP's ``timestamp`` filter is inclusive and has one-second resolution, so
-    the cursor also remembers which events at exactly ``timestamp`` were done.
+    MISP's index filters are inclusive and have one-second resolution, so the
+    cursor also remembers which events at exactly ``timestamp`` were done.
     """
 
     timestamp: int
@@ -40,15 +40,15 @@ class PullCursor:
     def dump(self) -> str:
         return json.dumps({"timestamp": self.timestamp, "uuids": sorted(self.uuids)})
 
-    def covers(self, ref: MispEventRef) -> bool:
-        return ref.timestamp < self.timestamp or (
-            ref.timestamp == self.timestamp and ref.uuid in self.uuids
+    def covers(self, position: int, uuid: str) -> bool:
+        return position < self.timestamp or (
+            position == self.timestamp and uuid in self.uuids
         )
 
-    def past(self, ref: MispEventRef) -> "PullCursor":
-        if ref.timestamp > self.timestamp:
-            return PullCursor(ref.timestamp, frozenset({ref.uuid}))
-        return PullCursor(self.timestamp, self.uuids | {ref.uuid})
+    def past(self, position: int, uuid: str) -> "PullCursor":
+        if position > self.timestamp:
+            return PullCursor(position, frozenset({uuid}))
+        return PullCursor(self.timestamp, self.uuids | {uuid})
 
 
 class _Outcome(Enum):
@@ -115,9 +115,12 @@ class MispPuller:
                 break
             page += 1
         return sorted(
-            (ref for ref in refs if not cursor.covers(ref)),
-            key=lambda ref: (ref.timestamp, ref.uuid),
+            (ref for ref in refs if not cursor.covers(self._position(ref), ref.uuid)),
+            key=lambda ref: (self._position(ref), ref.uuid),
         )
+
+    def _position(self, ref: MispEventRef) -> int:
+        return index_position(ref, self._pull.published_only)
 
     def run_once(self) -> int:
         """Ingest every event changed since the cursor. Returns events ingested."""
@@ -199,7 +202,7 @@ class MispPuller:
 
     def _advance(self, collector_id: int, ref: MispEventRef) -> None:
         assert self.cursor is not None
-        cursor = self.cursor.past(ref)
+        cursor = self.cursor.past(self._position(ref), ref.uuid)
         self._retry(
             lambda: self._platform.update_cursor(collector_id, cursor.dump()),
             "update cursor",

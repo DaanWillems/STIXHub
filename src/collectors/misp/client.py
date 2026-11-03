@@ -35,7 +35,17 @@ class MispEventRef:
     """An event as MISP's event index lists it."""
 
     uuid: str
-    timestamp: int
+    timestamp: int  # last modified
+    publish_timestamp: int  # last published; 0 if never
+
+
+def index_position(ref: MispEventRef, published_only: bool) -> int:
+    """Where ``ref`` sits in the index ``index_events`` lists.
+
+    Publishing an event moves its ``publish_timestamp`` but not its
+    ``timestamp``, so a pull of published events must follow the former.
+    """
+    return ref.publish_timestamp if published_only else ref.timestamp
 
 
 class MispApi(Protocol):
@@ -49,7 +59,11 @@ class MispApi(Protocol):
         page: int,
         limit: int,
     ) -> list[MispEventRef]:
-        """Events last modified at or after ``since`` (one page of the index)."""
+        """One page of the events at or after ``since``, oldest first.
+
+        With ``published_only`` that is the published events by
+        ``publish_timestamp``; otherwise every event by ``timestamp``.
+        """
 
     def get_event(self, uuid: str) -> dict[str, Any] | None:
         """The full event (unwrapped from ``Event``) without deleted attributes,
@@ -135,19 +149,26 @@ class PyMispClient:
         limit: int,
     ) -> list[MispEventRef]:
         api = self._api()
+        position = "publish_timestamp" if published_only else "timestamp"
         rows = self._call(
             "search event index",
             api.search_index,
-            timestamp=since,
             published=True if published_only else None,
             tags=tags or None,
             org=orgs or None,
+            sort=position,
+            desc=False,
             page=page,
             limit=limit,
             pythonify=False,
+            **{position: since},
         )
         return [
-            MispEventRef(uuid=row["uuid"], timestamp=int(row["timestamp"]))
+            MispEventRef(
+                uuid=row["uuid"],
+                timestamp=int(row["timestamp"]),
+                publish_timestamp=int(row.get("publish_timestamp") or 0),
+            )
             for row in rows
         ]
 

@@ -46,22 +46,38 @@ def _client(answer: Any) -> tuple[PyMispClient, StubPyMisp]:
 
 
 def test_index_rows_become_refs_and_filters_are_passed() -> None:
-    client, stub = _client([{"uuid": "e1", "timestamp": "1790000000", "info": "x"}])
+    row = {"uuid": "e1", "timestamp": "1790000000", "publish_timestamp": "1790000005"}
+    client, stub = _client([row])
 
     refs = client.index_events(
         since=1, published_only=True, tags=["tlp:green"], orgs=[], page=2, limit=50
     )
 
-    assert refs == [MispEventRef("e1", 1790000000)]
+    assert refs == [MispEventRef("e1", 1790000000, 1790000005)]
     assert stub.calls[0][1] == {
-        "timestamp": 1,
+        "publish_timestamp": 1,
         "published": True,
         "tags": ["tlp:green"],
         "org": None,
+        "sort": "publish_timestamp",
+        "desc": False,
         "page": 2,
         "limit": 50,
         "pythonify": False,
     }
+
+
+def test_all_events_are_listed_by_modification_time() -> None:
+    client, stub = _client([{"uuid": "e1", "timestamp": "7", "publish_timestamp": "0"}])
+
+    refs = client.index_events(
+        since=1, published_only=False, tags=[], orgs=[], page=1, limit=50
+    )
+
+    assert refs == [MispEventRef("e1", 7, 0)]
+    assert stub.calls[0][1]["timestamp"] == 1
+    assert stub.calls[0][1]["sort"] == "timestamp"
+    assert stub.calls[0][1]["published"] is None
 
 
 def test_event_is_unwrapped_and_missing_event_is_none() -> None:

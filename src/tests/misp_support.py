@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from collectors.misp.client import MispEventRef, MispRequestError
+from collectors.misp.client import MispEventRef, MispRequestError, index_position
 from collectors.misp.connector import MispConnector
 from models.domain import MispConnectorConfig
 from tests.platform_support import Platform
@@ -64,7 +64,9 @@ def all_uuids(event: dict[str, Any]) -> set[str]:
 class FakeMisp:
     """An in-memory MISP instance implementing ``MispApi``.
 
-    Like MISP, it stamps every write with a new, increasing ``timestamp``.
+    Like MISP, it stamps every write with a new, increasing ``timestamp``,
+    unpublishes an event when it is edited, and publishing sets
+    ``publish_timestamp`` but leaves ``timestamp`` alone.
     """
 
     events: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -81,9 +83,16 @@ class FakeMisp:
         self.events[event["uuid"]] = copy.deepcopy(event)
         self.clock = max(self.clock, int(event["timestamp"]))
 
-    def edit(self, uuid: str, **changes: Any) -> None:
-        """Change an event as if a MISP user edited it."""
-        self.events[uuid].update(changes, timestamp=str(self._tick()))
+    def edit(self, uuid: str, *, republish: bool = False, **changes: Any) -> None:
+        """Change an event as a MISP user would, which unpublishes it, and
+        optionally publish it again."""
+        self.events[uuid].update(changes, timestamp=str(self._tick()), published=False)
+        if republish:
+            self.publish(uuid)
+
+    def publish(self, uuid: str) -> None:
+        """Publish an event as a MISP user would."""
+        self.events[uuid].update(published=True, publish_timestamp=str(self._tick()))
 
     def index_events(
         self,
@@ -103,13 +112,24 @@ class FakeMisp:
                 "orgs": orgs,
             }
         )
-        rows = [
-            MispEventRef(uuid, int(event["timestamp"]))
-            for uuid, event in self.events.items()
-            if int(event["timestamp"]) >= since
-            and (event.get("published") or not published_only)
-        ]
+        rows = sorted(
+            (
+                ref
+                for ref in map(self._ref, self.events.values())
+                if index_position(ref, published_only) >= since
+                and (self.events[ref.uuid].get("published") or not published_only)
+            ),
+            key=lambda ref: index_position(ref, published_only),
+        )
         return rows[(page - 1) * limit : page * limit]
+
+    @staticmethod
+    def _ref(event: dict[str, Any]) -> MispEventRef:
+        return MispEventRef(
+            event["uuid"],
+            int(event["timestamp"]),
+            int(event.get("publish_timestamp") or 0),
+        )
 
     def get_event(self, uuid: str) -> dict[str, Any] | None:
         event = self.events.get(uuid)
@@ -136,7 +156,7 @@ class FakeMisp:
 
     def publish_event(self, uuid: str) -> None:
         self.writes.append(("publish", uuid))
-        self.events[uuid]["published"] = True
+        self.publish(uuid)
 
 
 def connector_config(**overrides: Any) -> MispConnectorConfig:

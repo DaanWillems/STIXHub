@@ -66,11 +66,26 @@ async def test_edited_event_is_ingested_again_under_the_same_report_id() -> None
     pull, platform = await _pull(misp)
     pull.run_once()
 
-    misp.edit(EVENT_UUID, info="Phishing campaign against ACME (updated)")
+    misp.edit(
+        EVENT_UUID, info="Phishing campaign against ACME (updated)", republish=True
+    )
 
     assert pull.run_once() == 1
     first, second = await _reports(platform)
     assert first == second
+
+
+async def test_events_published_after_newer_ones_are_still_pulled() -> None:
+    """A draft that is published later sorts by when it was published."""
+    misp = FakeMisp()
+    misp.seed(small_event(EVENT_UUID, "Draft", T0, published=False))
+    misp.seed(small_event(OTHER, "Published", T0 + 5))
+    pull, _ = await _pull(misp)
+    assert pull.run_once() == 1
+
+    misp.publish(EVENT_UUID)
+
+    assert pull.run_once() == 1
 
 
 async def test_lookback_and_filters_are_applied() -> None:
@@ -97,7 +112,7 @@ async def test_own_push_is_not_pulled_back_until_edited_in_misp() -> None:
 
     assert pull.run_once() == 0
 
-    misp.edit(EVENT_UUID, info="Edited by an analyst")
+    misp.edit(EVENT_UUID, info="Edited by an analyst", republish=True)
 
     assert pull.run_once() == 1
     record = (await platform.sync.get_many(INSTANCE, [EVENT_UUID]))[EVENT_UUID]

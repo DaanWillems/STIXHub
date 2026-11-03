@@ -79,7 +79,7 @@ async def test_two_way_sync_settles_and_respects_misp_edits() -> None:
     assert misp.writes == writes
 
     # An analyst edits the pushed event: it flows into raw and MISP owns it ...
-    misp.edit(REPORT, info="Edited in MISP")
+    misp.edit(REPORT, info="Edited in MISP", republish=True)
     connector.run_cycle()
     assert await _owner(platform, REPORT) is MispEventOrigin.misp
     assert any(
