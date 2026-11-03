@@ -46,7 +46,7 @@ class Retrier:
         )
 
 
-def load_cursor(name: str, raw: str | None, parse: Callable[[str], T]) -> T | None:
+def load_cursor[C](name: str, raw: str | None, parse: Callable[[str], C]) -> C | None:
     """Parse a stored cursor; a malformed one is a registration error."""
     if raw is None:
         return None

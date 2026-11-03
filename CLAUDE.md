@@ -51,6 +51,7 @@ docker compose up -d
 - `STIX_HUB_WORKER_BATCH_SIZE` (default: 10) — entities taken from a source per batch
 - `STIX_HUB_COLLECTOR_CREDENTIALS__<ENV>__USER` / `__PASS` — TAXII collector credentials
 - `STIX_HUB_MISP_CREDENTIALS__<ENV>__API_KEY` — MISP connector API keys
+- `STIX_HUB_COLLECTOR_SECRETS__<NAME>` — secret a collector shares with the platform's internal API (random per run when unset)
 
 ## Architecture
 
@@ -71,6 +72,7 @@ src/
   __main__.py       # entry point: --mode server | worker | server-worker
   config.py         # pydantic-settings Settings (env prefix: stix_hub_) + platform config loading
   permissions.py    # effective bucket permissions for a set of roles
+  collector_auth.py # collector secrets and the one bucket each registration may use
   dependencies.py   # FastAPI dependencies (repos, current user, platform config)
   server/           # FastAPI app factory + lifespan (create tables, provision buckets, collectors)
   worker/           # pipeline worker loop
