@@ -70,3 +70,18 @@ async def test_records_need_the_connectors_secret() -> None:
     )
 
     assert resp.status_code == 401
+
+
+async def test_connectors_of_one_misp_instance_share_records() -> None:
+    platform = await make_platform(
+        "refined",
+        collectors=[
+            _connector("circl"),
+            _connector("circl-out", url="https://MISP.example.org/"),
+            _connector("elsewhere", url="https://other.example.org"),
+        ],
+    )
+    _put(platform.client, "circl", {"origin": "misp", "misp_timestamp": 1})
+
+    assert _lookup(platform.client, "circl-out")[0]["origin"] == "misp"
+    assert _lookup(platform.client, "elsewhere") == []

@@ -189,12 +189,13 @@ class CollectorModel(Base):
 
 
 class MispEventSyncModel(Base):
-    """Which MISP events a MISP connector has seen, and who owns them."""
+    """Which events of a MISP instance STIXHub has seen, and who owns them."""
 
     __tablename__ = "misp_event_sync"
-    __table_args__ = (UniqueConstraint("connector", "event_uuid"),)
+    __table_args__ = (UniqueConstraint("instance", "event_uuid"),)
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    connector: Mapped[str] = mapped_column(nullable=False)
+    # The MISP instance's normalised URL, shared by all its connectors.
+    instance: Mapped[str] = mapped_column(nullable=False)
     event_uuid: Mapped[str] = mapped_column(nullable=False)
     origin: Mapped[str] = mapped_column(
         SAEnum(

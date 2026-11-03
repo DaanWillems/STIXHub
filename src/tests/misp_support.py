@@ -17,6 +17,8 @@ EVENT_JSON = Path(__file__).parent / "fixtures" / "misp" / "event.json"
 EVENT_UUID = "5e8d5c5a-0b1c-4b8e-9d2a-1a2b3c4d5e6f"
 # 2026-09-21; every fake MISP timestamp is at or after this.
 T0 = 1_790_000_000
+# The MISP instance of connector_config(); sync records are keyed by it.
+INSTANCE = "https://misp.example.org"
 NOW = datetime.fromtimestamp(T0, UTC)
 
 

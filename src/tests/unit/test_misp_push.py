@@ -5,6 +5,7 @@ import pytest
 from collectors.misp.pusher import MispPusher
 from models.domain import MispEventOrigin, MispEventSync
 from tests.misp_support import (
+    INSTANCE,
     EVENT_UUID,
     T0,
     FakeMisp,
@@ -76,7 +77,7 @@ async def _push(misp: FakeMisp, **push: object) -> tuple[MispPusher, Platform]:
 
 
 async def _record(platform: Platform, uuid: str = REPORT) -> MispEventSync | None:
-    return (await platform.sync.get_many("circl", [uuid])).get(uuid)
+    return (await platform.sync.get_many(INSTANCE, [uuid])).get(uuid)
 
 
 async def test_report_becomes_event_with_what_it_references() -> None:
@@ -91,7 +92,7 @@ async def test_report_becomes_event_with_what_it_references() -> None:
     # The loose indicator is not part of any report, so it isn't pushed.
     assert all_uuids(event) == {INDICATOR}
     assert await _record(platform) == MispEventSync(
-        "circl", REPORT, MispEventOrigin.stixhub, int(event["timestamp"])
+        INSTANCE, REPORT, MispEventOrigin.stixhub, int(event["timestamp"])
     )
     assert push.run_once() == 0
 
@@ -186,7 +187,7 @@ async def test_ownership_rules(
     if in_misp:
         misp.seed(small_event(REPORT, "Existing", REMOTE_TS))
     if record is not None:
-        await platform.sync.upsert(MispEventSync("circl", REPORT, *record))
+        await platform.sync.upsert(MispEventSync(INSTANCE, REPORT, *record))
     await platform.ingest("refined", _feed(), creator="feed")
 
     push.run_once()

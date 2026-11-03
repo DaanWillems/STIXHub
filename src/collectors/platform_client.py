@@ -8,7 +8,7 @@ from models.domain import (
     CollectorEntityPage,
     CollectorResponse,
     MispEventOrigin,
-    MispEventSync,
+    MispEventRecord,
     MispEventSyncLookupResponse,
     TaxiiWriteStatusModel,
 )
@@ -79,7 +79,8 @@ class PlatformClient:
 
     def lookup_misp_events(
         self, connector: str, event_uuids: list[str]
-    ) -> dict[str, MispEventSync]:
+    ) -> dict[str, MispEventRecord]:
+        """Sync records of the connector's MISP instance, keyed by event UUID."""
         response = self._http.post(
             f"{self._base_url}/misp-sync/{connector}/events/lookup",
             headers=self._headers,
@@ -87,15 +88,7 @@ class PlatformClient:
         )
         response.raise_for_status()
         events = MispEventSyncLookupResponse.model_validate(response.json()).events
-        return {
-            event.event_uuid: MispEventSync(
-                connector=event.connector,
-                event_uuid=event.event_uuid,
-                origin=event.origin,
-                misp_timestamp=event.misp_timestamp,
-            )
-            for event in events
-        }
+        return {event.event_uuid: event for event in events}
 
     def put_misp_event(
         self,

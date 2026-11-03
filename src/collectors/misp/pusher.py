@@ -16,7 +16,7 @@ from models.domain import (
     CollectorEntity,
     MispConnectorConfig,
     MispEventOrigin,
-    MispEventSync,
+    MispEventRecord,
     MispPushConfig,
 )
 
@@ -227,7 +227,7 @@ class MispPusher:
 
     def _may_write(
         self,
-        record: MispEventSync | None,
+        record: MispEventRecord | None,
         remote: dict[str, Any] | None,
         event_uuid: str,
     ) -> bool:

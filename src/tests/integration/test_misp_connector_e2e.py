@@ -8,6 +8,7 @@ from typing import Any
 
 from models.domain import MispEventOrigin
 from tests.misp_support import (
+    INSTANCE,
     EVENT_UUID,
     FakeMisp,
     connector_config,
@@ -48,7 +49,7 @@ def _feed_report(name: str) -> list[dict[str, Any]]:
 
 
 async def _owner(platform: Platform, uuid: str) -> MispEventOrigin:
-    return (await platform.sync.get_many("circl", [uuid]))[uuid].origin
+    return (await platform.sync.get_many(INSTANCE, [uuid]))[uuid].origin
 
 
 async def test_two_way_sync_settles_and_respects_misp_edits() -> None:

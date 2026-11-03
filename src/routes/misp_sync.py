@@ -12,10 +12,10 @@ from collector_auth import CollectorAuth, CollectorAuthError
 from database.repositories.misp_sync import MispSyncRepository, OwnershipError
 from dependencies import CredentialsDep, get_collector_auth, get_misp_sync_repo
 from models.domain import (
+    MispEventRecord,
     MispEventSync,
     MispEventSyncLookup,
     MispEventSyncLookupResponse,
-    MispEventSyncResponse,
     MispEventSyncUpdate,
 )
 
@@ -36,9 +36,8 @@ def _authenticate(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
-def _to_response(record: MispEventSync) -> MispEventSyncResponse:
-    return MispEventSyncResponse(
-        connector=record.connector,
+def _to_response(record: MispEventSync) -> MispEventRecord:
+    return MispEventRecord(
         event_uuid=record.event_uuid,
         origin=record.origin,
         misp_timestamp=record.misp_timestamp,
@@ -53,8 +52,8 @@ async def lookup_events(
     auth: CollectorAuthDep,
     credentials: CredentialsDep,
 ) -> MispEventSyncLookupResponse:
-    _authenticate(connector, auth, credentials)
-    records = await repo.get_many(connector, body.event_uuids)
+    instance = _authenticate(connector, auth, credentials)
+    records = await repo.get_many(instance, body.event_uuids)
     return MispEventSyncLookupResponse(
         events=[_to_response(record) for record in records.values()]
     )
@@ -68,10 +67,9 @@ async def put_event(
     repo: MispSyncRepoDep,
     auth: CollectorAuthDep,
     credentials: CredentialsDep,
-) -> MispEventSyncResponse:
-    _authenticate(connector, auth, credentials)
+) -> MispEventRecord:
     record = MispEventSync(
-        connector=connector,
+        instance=_authenticate(connector, auth, credentials),
         event_uuid=event_uuid,
         origin=body.origin,
         misp_timestamp=body.misp_timestamp,

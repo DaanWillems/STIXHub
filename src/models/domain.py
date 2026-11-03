@@ -45,9 +45,11 @@ class CollectionConfig(BaseModel):
     can_write: bool
     bucket_name: str
 
+
 class PipelineBooleanType(str, Enum):
     AND = "and"
     OR = "or"
+
 
 class PipelineConditionType(str, Enum):
     eq = "eq"
@@ -59,10 +61,12 @@ class PipelineConditionType(str, Enum):
     contains = "contains"
     not_contains = "not_contains"
 
+
 class PipelineExpression(BaseModel):
     field: str
     type: PipelineConditionType
     value: str
+
 
 class PipelineCondition(BaseModel):
     """AND / OR group of sub-conditions, which may themselves be groups."""
@@ -70,13 +74,16 @@ class PipelineCondition(BaseModel):
     type: PipelineBooleanType
     condition: list["PipelineCondition | PipelineExpression"]
 
+
 PipelineCondition.model_rebuild()
+
 
 class PipelineStepConfig(BaseModel):
     action: str
     field: str
     value: str
     condition: PipelineCondition | PipelineExpression | None = None
+
 
 class PipelineConfig(BaseModel):
     name: str
@@ -86,6 +93,7 @@ class PipelineConfig(BaseModel):
     sources: list[str]
     sinks: list[str]
     steps: list[PipelineStepConfig]
+
 
 # Collector names end up in creators ("collector:<name>") and registrations
 # ("<name>:push"), so they are restricted to a safe alphabet.
@@ -145,7 +153,9 @@ class MispConnectorConfig(BaseModel):
 
 def _collector_type(value: Any) -> str:
     """Collectors without a ``type`` are TAXII collectors."""
-    found = value.get("type") if isinstance(value, dict) else getattr(value, "type", None)
+    found = (
+        value.get("type") if isinstance(value, dict) else getattr(value, "type", None)
+    )
     return str(found or "taxii")
 
 
@@ -206,9 +216,13 @@ class MispEventOrigin(str, Enum):
 
 @dataclass
 class MispEventSync:
-    """What a MISP connector knows about one MISP event."""
+    """What STIXHub knows about one event of one MISP instance.
 
-    connector: str
+    Records are shared by every connector of that instance, so one
+    connector's pushes are never pulled back by another.
+    """
+
+    instance: str  # the instance's normalised URL
     event_uuid: str
     origin: MispEventOrigin
     # The event's MISP timestamp at the last sync; None while an add is pending.
@@ -220,8 +234,9 @@ class MispEventSyncUpdate(BaseModel):
     misp_timestamp: int | None = None
 
 
-class MispEventSyncResponse(BaseModel):
-    connector: str
+class MispEventRecord(BaseModel):
+    """A sync record as the internal API returns it to a connector."""
+
     event_uuid: str
     origin: MispEventOrigin
     misp_timestamp: int | None = None
@@ -232,7 +247,7 @@ class MispEventSyncLookup(BaseModel):
 
 
 class MispEventSyncLookupResponse(BaseModel):
-    events: list[MispEventSyncResponse]
+    events: list[MispEventRecord]
 
 
 class CollectorEntity(BaseModel):
@@ -363,6 +378,7 @@ class TaxiiWriteStatusModel(BaseModel):
     successes: list[TaxiiStatusRef] = Field(default_factory=list)
     failures: list[TaxiiStatusRef] = Field(default_factory=list)
     pendings: list[TaxiiStatusRef] = Field(default_factory=list)
+
 
 @dataclass
 class RoleConfig:
