@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -7,6 +9,7 @@ from models.domain import MispEventOrigin, MispEventSync
 from tests.misp_support import (
     EVENT_UUID,
     INSTANCE,
+    NOW,
     OUR_ORG,
     T0,
     THEIR_ORG,
@@ -68,11 +71,21 @@ def _feed(name: str = "TAXII report") -> list[dict[str, Any]]:
     ]
 
 
-async def _push(misp: FakeMisp, **push: object) -> tuple[MispPusher, Platform]:
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+async def _push(
+    misp: FakeMisp, clock: Callable[[], datetime] = lambda: NOW, **push: object
+) -> tuple[MispPusher, Platform]:
     platform = await make_platform("refined")
     config = connector_config(pull=None, push={"source_bucket": "refined", **push})
     connector = make_connector(
-        config, misp, platform, excluded_creators=frozenset({"collector:sibling"})
+        config,
+        misp,
+        platform,
+        excluded_creators=frozenset({"collector:sibling"}),
+        clock=clock,
     )
     assert connector.pusher is not None
     return connector.pusher, platform
@@ -133,6 +146,32 @@ async def test_misp_event_keeps_its_uuids_through_stixhub() -> None:
 
     assert pusher.pusher.run_once() == 1
     assert all_uuids(target.events[EVENT_UUID]) == all_uuids(fixture_event())
+
+
+async def test_report_waits_for_objects_still_on_their_way() -> None:
+    misp = FakeMisp()
+    push, platform = await _push(misp, clock=_utcnow, wait_for_refs_seconds=60)
+    report, *objects, _loose = _feed()
+    await platform.ingest("refined", [report], creator="feed")
+
+    assert push.run_once() == 0
+    await platform.ingest("refined", objects, creator="feed")
+
+    assert push.run_once() == 1
+    assert all_uuids(misp.events[REPORT]) == {INDICATOR}
+
+
+async def test_report_is_pushed_without_objects_that_never_arrive() -> None:
+    misp, now = FakeMisp(), [datetime.now(UTC)]
+    push, platform = await _push(misp, clock=lambda: now[0], wait_for_refs_seconds=60)
+    report, *_ = _feed()
+    await platform.ingest("refined", [report], creator="feed")
+    assert push.run_once() == 0
+
+    now[0] += timedelta(seconds=61)
+
+    assert push.run_once() == 1
+    assert misp.writes == [("add", REPORT)]
 
 
 @pytest.mark.parametrize(

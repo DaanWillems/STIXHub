@@ -56,12 +56,12 @@ class PlatformClient:
         response.raise_for_status()
 
     def list_entities(
-        self, collector_id: int, after: int, limit: int
+        self, collector_id: int, after: int, limit: int, settled_for: float = 0
     ) -> list[CollectorEntity]:
         response = self._http.get(
             f"{self._base_url}/collectors/{collector_id}/entities",
             headers=self._headers,
-            params={"after": after, "limit": limit},
+            params={"after": after, "limit": limit, "settled_for": settled_for},
         )
         response.raise_for_status()
         return CollectorEntityPage.model_validate(response.json()).entities

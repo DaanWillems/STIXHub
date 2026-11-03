@@ -45,7 +45,13 @@ class MispConnector:
         own = frozenset({f"collector:{config.name}"})
         self.pusher = (
             MispPusher(
-                config, misp, platform, retry, self._stop, own | excluded_creators
+                config,
+                misp,
+                platform,
+                retry,
+                self._stop,
+                own | excluded_creators,
+                clock,
             )
             if config.push is not None
             else None

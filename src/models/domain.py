@@ -127,7 +127,14 @@ class MispPushConfig(BaseModel):
     distribution: int = Field(default=0, ge=0, le=5)
     sharing_group_id: int | None = None
     publish: bool = False
-    batch_size: PositiveInt = 100
+    # The internal API returns at most 1000 entities per page.
+    batch_size: int = Field(default=100, ge=1, le=1000)
+    # Entities younger than this aren't read yet, so the cursor never passes a
+    # row whose transaction is still committing.
+    settle_seconds: float = Field(default=10, ge=0)
+    # How long a report waits for objects it references to reach the bucket
+    # (e.g. while a pipeline is still copying them) before it is pushed anyway.
+    wait_for_refs_seconds: float = Field(default=120, ge=0)
 
 
 class MispConnectorConfig(BaseModel):
@@ -257,6 +264,7 @@ class CollectorEntity(BaseModel):
     stix_id: str
     type: str
     creator: str
+    platform_created: datetime
     other_stix_ids: list[str]
     object: dict[str, Any]
 

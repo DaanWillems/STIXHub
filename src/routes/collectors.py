@@ -5,7 +5,9 @@ registration only ever touches the one bucket its config grants it, with the
 access it grants (see collector_auth.py and specs/misp-connector.md).
 """
 
+import itertools
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -188,6 +190,7 @@ def _entity_response(entity: StixEntity) -> CollectorEntity:
         stix_id=entity.stix_id,
         type=entity.type,
         creator=entity.creator,
+        platform_created=entity.platform_created,
         other_stix_ids=entity.other_stix_ids,
         object=entity.object,
     )
@@ -202,13 +205,23 @@ async def list_entities(
     credentials: CredentialsDep,
     after: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
+    settled_for: float = Query(default=0, ge=0),
 ) -> CollectorEntityPage:
-    """Entities of the collector's bucket with an ``id`` above ``after``."""
+    """Entities of the collector's bucket with an ``id`` above ``after``.
+
+    The page ends before the first entity created less than ``settled_for``
+    seconds ago: ids are handed out before commit, so a younger row may still
+    have an older neighbour on its way, and a reader's cursor must not pass it.
+    """
     collector = await _authorized(
         collector_id, BucketAccess.read, auth, credentials, collector_repo, bucket_repo
     )
     entities = await bucket_repo.get_entities_after(collector.bucket_id, after, limit)
-    return CollectorEntityPage(entities=[_entity_response(e) for e in entities])
+    settled_before = datetime.now(UTC) - timedelta(seconds=settled_for)
+    settled = list(
+        itertools.takewhile(lambda e: e.platform_created <= settled_before, entities)
+    )
+    return CollectorEntityPage(entities=[_entity_response(e) for e in settled])
 
 
 @collectors_router.post("/{collector_id}/entities/lookup")

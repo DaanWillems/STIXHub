@@ -129,6 +129,21 @@ async def test_entities_are_paged_by_id() -> None:
     ]
 
 
+async def test_entities_are_listed_only_once_settled() -> None:
+    client = (await _platform()).client
+    _submit(client, _register(client, "feed", BUCKET).json()["id"], INDICATOR)
+    reader = _register(client, "misp:push", BUCKET).json()
+    url = f"/collectors/{reader['id']}/entities"
+
+    def listed(settled_for: int) -> int:
+        params = {"settled_for": settled_for}
+        page = client.get(url, params=params, headers=_auth("misp")).json()
+        return len(page["entities"])
+
+    assert listed(settled_for=60) == 0
+    assert listed(settled_for=0) == 1
+
+
 async def test_lookup_finds_newest_entity_by_platform_or_original_id() -> None:
     client = (await _platform()).client
     feed = _register(client, "feed", BUCKET).json()

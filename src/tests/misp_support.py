@@ -3,6 +3,7 @@
 import copy
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -189,6 +190,13 @@ def connector_config(**overrides: Any) -> MispConnectorConfig:
         "push": {"source_bucket": "refined"},
     }
     values.update(overrides)
+    if isinstance(values["push"], dict):
+        # Push at once; the tests for waiting set these themselves.
+        values["push"] = {
+            "settle_seconds": 0,
+            "wait_for_refs_seconds": 0,
+            **values["push"],
+        }
     return MispConnectorConfig.model_validate(values)
 
 
@@ -197,6 +205,7 @@ def make_connector(
     misp: FakeMisp,
     platform: Platform,
     excluded_creators: frozenset[str] = frozenset(),
+    clock: Callable[[], datetime] = lambda: NOW,
 ) -> MispConnector:
     platform.enroll(config)
     connector = MispConnector(
@@ -206,7 +215,7 @@ def make_connector(
         excluded_creators=excluded_creators,
         stop_event=threading.Event(),
         backoff_base=0,
-        clock=lambda: NOW,
+        clock=clock,
     )
     connector.register()
     return connector
