@@ -287,8 +287,7 @@ original object and doesn't change when the object is edited. `value` doesn't ch
 still the name / context / abstract etc., so search and pipeline conditions keep working.
 The original ID stays in `other_stix_ids`.
 
-Entities already stored keep their IDs. Only objects ingested after this change get the new
-IDs; no data migration is done.
+There is no migration: existing databases are recreated (see [Database](#database)).
 
 ### Processor coverage
 
@@ -338,10 +337,12 @@ for pipelines already covers them through `other_stix_ids` (see
 
 ### Database
 
-- New table for sync records (see above). `create_all` creates it.
-- `stix_entity_model.type` widens from `String(30)` to `String(128)` for custom type names.
-  `create_all` doesn't alter existing columns, so `create_tables` runs an idempotent
-  `ALTER TABLE stix_entity_model ALTER COLUMN type TYPE varchar(128)` after `create_all`.
+No migrations and no `ALTER TABLE`: the schema still comes only from `create_all`, and
+existing databases are dropped and recreated after upgrading.
+
+- New table for sync records (see above).
+- `stix_entity_model.type` is declared as `String(128)` instead of `String(30)`, for custom
+  type names.
 - New `BucketRepository` methods, in both the database and in-memory implementations:
   - `get_entities_after(bucket_id, after_id, limit)`: entities with `id > after_id`, by `id`.
   - `find_latest_by_refs(bucket_id, refs)`: like `find_by_refs`, but across all types (the
@@ -416,8 +417,7 @@ round-trip tests.
 - [ ] Every type in the processor coverage table can be ingested.
 - [ ] Ingest rewrites the ref properties in the ref rewriting table to platform IDs, and
       leaves unknown refs unchanged.
-- [ ] Custom types longer than 30 characters can be stored; `create_tables` widens the
-      column on an existing database.
+- [ ] Custom types up to 128 characters long can be stored.
 - [ ] The new endpoints and repository methods work with both the database and the
       in-memory repositories.
 
@@ -480,13 +480,13 @@ No test needs network access or a real MISP instance.
 - **End to end:** like `test_taxii_collector_e2e.py`. A `FakeMispClient` plus the real
   collector routes and in-memory repositories, run for several cycles in both directions,
   checking that nothing is duplicated and nothing echoes.
-- **Integration (PostgreSQL):** the new repository methods, the sync table and the column
-  widening on an existing table.
+- **Integration (PostgreSQL):** the new repository methods, the sync table and storing a
+  long custom type name.
 - **Manual (documented, not in CI):** a pull/push run against a MISP instance in Docker.
 
 ## Delivery Order
 
-1. Platform ID of containers, processor coverage, ref rewriting and the column widening.
+1. Platform ID of containers, processor coverage, ref rewriting and the wider `type` column.
 2. Repository methods, sync records and the internal endpoints.
 3. Config models and validation, credentials, the type-agnostic runner and dependencies.
 4. `MispClient`, conversion wrappers and the pull step.
