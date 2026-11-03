@@ -10,11 +10,11 @@ from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner, create_runner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from models.domain import CollectorConfig
+from models.domain import TaxiiCollectorConfig
 
 
-def _config(name: str = "feed", shutdown_timeout: float = 5) -> CollectorConfig:
-    return CollectorConfig(
+def _config(name: str = "feed", shutdown_timeout: float = 5) -> TaxiiCollectorConfig:
+    return TaxiiCollectorConfig(
         name=name,
         remote_url="https://taxii.example.com/api/",
         remote_collection_id="coll-1",
@@ -31,7 +31,7 @@ def _platform_handler(request: httpx.Request) -> httpx.Response:
 
 
 def _collector(
-    config: CollectorConfig,
+    config: TaxiiCollectorConfig,
     stop: threading.Event,
     taxii_handler: httpx.MockTransport,
 ) -> TaxiiCollector:

@@ -15,6 +15,12 @@ class CollectorCredentials(BaseModel):
     password: SecretStr = Field(alias="pass")
 
 
+class MispCredentials(BaseModel):
+    """API key for a MISP instance."""
+
+    api_key: SecretStr
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -43,6 +49,9 @@ class Settings(BaseSettings):
     # STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER / ...__PASS.
     # Keys are lower-cased by pydantic-settings.
     COLLECTOR_CREDENTIALS: dict[str, CollectorCredentials] = Field(default_factory=dict)
+    # MISP API keys keyed by a MISP connector's `credentials_env`, e.g.
+    # STIX_HUB_MISP_CREDENTIALS__CIRCL_MISP__API_KEY. Keys are lower-cased.
+    MISP_CREDENTIALS: dict[str, MispCredentials] = Field(default_factory=dict)
 
 
 settings = Settings()

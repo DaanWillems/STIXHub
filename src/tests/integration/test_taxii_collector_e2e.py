@@ -23,7 +23,7 @@ from collectors.runner import CollectorRunner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector, taxii_timestamp
 from dependencies import get_bucket_repo, get_collector_repo
-from models.domain import Bucket, CollectorConfig
+from models.domain import Bucket, TaxiiCollectorConfig
 from database.repositories.bucket import InMemoryBucketRepository
 from database.repositories.collector import InMemoryCollectorRepository
 from routes.collectors import collectors_router
@@ -148,7 +148,7 @@ def _make_collector(
     stop_event: threading.Event | None = None,
     auth: tuple[str, str] = CREDENTIALS,
 ) -> TaxiiCollector:
-    config = CollectorConfig(
+    config = TaxiiCollectorConfig(
         name="external-feed",
         remote_url=API_ROOT,
         remote_collection_id=COLLECTION_ID,

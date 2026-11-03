@@ -1,10 +1,18 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    Tag,
+)
 
 
 class ProcessingStatus(str, Enum):
@@ -79,8 +87,14 @@ class PipelineConfig(BaseModel):
     sinks: list[str]
     steps: list[PipelineStepConfig]
 
-class CollectorConfig(BaseModel):
-    name: str = Field(min_length=1)
+# Collector names end up in creators ("collector:<name>") and registrations
+# ("<name>:push"), so they are restricted to a safe alphabet.
+CollectorName = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+$")]
+
+
+class TaxiiCollectorConfig(BaseModel):
+    type: Literal["taxii"] = "taxii"
+    name: CollectorName
     remote_url: str
     remote_collection_id: str
     credentials_env: str | None = None
@@ -88,6 +102,58 @@ class CollectorConfig(BaseModel):
     poll_interval: PositiveFloat = 300
     max_retries: PositiveInt = 3
     shutdown_timeout: PositiveFloat = 30
+
+
+class MispPullConfig(BaseModel):
+    target_bucket: str
+    published_only: bool = True
+    initial_lookback_days: PositiveInt = 30
+    tags: list[str] = Field(default_factory=list)
+    orgs: list[str] = Field(default_factory=list)
+    page_size: PositiveInt = 100
+
+
+class MispPushConfig(BaseModel):
+    source_bucket: str
+    exclude_creators: list[str] = Field(default_factory=list)
+    distribution: int = Field(default=0, ge=0, le=5)
+    sharing_group_id: int | None = None
+    publish: bool = False
+    batch_size: PositiveInt = 100
+
+
+class MispConnectorConfig(BaseModel):
+    type: Literal["misp"]
+    name: CollectorName
+    url: str
+    credentials_env: str
+    # True, False, or the path to a CA bundle.
+    verify_tls: bool | str = True
+    poll_interval: PositiveFloat = 300
+    max_retries: PositiveInt = 3
+    shutdown_timeout: PositiveFloat = 30
+    pull: MispPullConfig | None = None
+    push: MispPushConfig | None = None
+
+    @property
+    def normalized_url(self) -> str:
+        """``url`` without a trailing slash, scheme and host lower-cased."""
+        scheme, sep, rest = self.url.rstrip("/").partition("://")
+        host, slash, path = rest.partition("/")
+        return f"{scheme.lower()}{sep}{host.lower()}{slash}{path}"
+
+
+def _collector_type(value: Any) -> str:
+    """Collectors without a ``type`` are TAXII collectors."""
+    found = value.get("type") if isinstance(value, dict) else getattr(value, "type", None)
+    return str(found or "taxii")
+
+
+CollectorConfig = Annotated[
+    Annotated[TaxiiCollectorConfig, Tag("taxii")]
+    | Annotated[MispConnectorConfig, Tag("misp")],
+    Discriminator(_collector_type),
+]
 
 
 class PlatformConfig(BaseModel):

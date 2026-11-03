@@ -21,7 +21,11 @@ dependencies = [
     "asyncpg",
     "uvicorn",
     "pyyaml",
-    "httpx"
+    "httpx",
+    # misp-stix output changes between releases: move the pin deliberately.
+    "misp-stix>=2026.10,<2027",
+    "pymisp>=2.5.34.1,<3",
+    "stix2>=3.0.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -45,3 +49,9 @@ warn_return_any = true
 warn_unused_configs = true
 strict = true
 check_untyped_defs = true
+
+# misp-stix and stix2 ship without type information; only
+# collectors/misp/client.py and convert.py import them.
+[[tool.mypy.overrides]]
+module = ["misp_stix_converter.*", "stix2.*"]
+ignore_missing_imports = true

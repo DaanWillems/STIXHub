@@ -2,7 +2,8 @@ import logging
 import os
 import signal
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from typing import Protocol
 
 import httpx
 
@@ -11,7 +12,7 @@ from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
 from collectors.validation import load_credentials
 from config import CollectorCredentials
-from models.domain import CollectorConfig
+from models.domain import CollectorConfig, MispConnectorConfig, TaxiiCollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +31,42 @@ def terminate_process(exc: BaseException) -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
+class Closeable(Protocol):
+    def close(self) -> None: ...
+
+
+class RunnableConfig(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def shutdown_timeout(self) -> float: ...
+
+
+class Collector(Protocol):
+    """Anything the runner can run on a thread: a TAXII collector, a MISP connector."""
+
+    @property
+    def config(self) -> RunnableConfig: ...
+
+    def run(self, on_fatal: FatalHandler | None = None) -> None: ...
+
+
 class CollectorRunner:
     """Runs each collector on its own daemon thread and stops them on shutdown."""
 
     def __init__(
         self,
-        collectors: list[TaxiiCollector],
+        collectors: Sequence[Collector],
         stop_event: threading.Event,
         on_fatal: FatalHandler | None = None,
-        clients: Mapping[str, list[httpx.Client]] | None = None,
+        clients: Mapping[str, Sequence[Closeable]] | None = None,
     ) -> None:
         self._collectors = collectors
         self._stop_event = stop_event
         self._on_fatal = on_fatal
         self._clients = clients or {}
-        self._threads: list[tuple[TaxiiCollector, threading.Thread]] = []
+        self._threads: list[tuple[Collector, threading.Thread]] = []
 
     @property
     def threads(self) -> list[threading.Thread]:
@@ -79,8 +101,26 @@ class CollectorRunner:
                 client.close()
 
 
+def _taxii_collector(
+    config: TaxiiCollectorConfig,
+    platform_url: str,
+    stop_event: threading.Event,
+    credentials: Mapping[str, CollectorCredentials] | None,
+) -> tuple[Collector, list[Closeable]]:
+    auth = load_credentials(config, credentials)
+    taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+    platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+    collector = TaxiiCollector(
+        config,
+        TaxiiClient(taxii_http, config.remote_url, config.remote_collection_id, auth),
+        PlatformClient(platform_http, platform_url),
+        stop_event=stop_event,
+    )
+    return collector, [taxii_http, platform_http]
+
+
 def create_runner(
-    configs: list[CollectorConfig],
+    configs: Sequence[CollectorConfig],
     platform_url: str,
     on_fatal: FatalHandler | None = terminate_process,
     credentials: Mapping[str, CollectorCredentials] | None = None,
@@ -90,21 +130,14 @@ def create_runner(
     ``credentials`` defaults to ``settings.COLLECTOR_CREDENTIALS``.
     """
     stop_event = threading.Event()
-    collectors: list[TaxiiCollector] = []
-    clients: dict[str, list[httpx.Client]] = {}
+    collectors: list[Collector] = []
+    clients: dict[str, list[Closeable]] = {}
     for config in configs:
-        auth = load_credentials(config, credentials)
-        taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
-        platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
-        clients[config.name] = [taxii_http, platform_http]
-        collectors.append(
-            TaxiiCollector(
-                config,
-                TaxiiClient(
-                    taxii_http, config.remote_url, config.remote_collection_id, auth
-                ),
-                PlatformClient(platform_http, platform_url),
-                stop_event=stop_event,
-            )
+        if isinstance(config, MispConnectorConfig):
+            raise NotImplementedError("MISP connectors are not wired up yet")
+        collector, closeables = _taxii_collector(
+            config, platform_url, stop_event, credentials
         )
+        collectors.append(collector)
+        clients[config.name] = closeables
     return CollectorRunner(collectors, stop_event, on_fatal, clients)
