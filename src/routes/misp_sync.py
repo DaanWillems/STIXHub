@@ -1,15 +1,16 @@
 """Internal REST API holding the MISP connectors' sync records.
 
-Unauthenticated like the collector API: reachable only from localhost / the
-internal network (see specs/misp-connector.md).
+Like the collector API, every call carries the connector's secret as a bearer
+token (see collector_auth.py and specs/misp-connector.md).
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from collector_auth import CollectorAuth, CollectorAuthError
 from database.repositories.misp_sync import MispSyncRepository, OwnershipError
-from dependencies import get_misp_sync_repo
+from dependencies import CredentialsDep, get_collector_auth, get_misp_sync_repo
 from models.domain import (
     MispEventSync,
     MispEventSyncLookup,
@@ -21,6 +22,18 @@ from models.domain import (
 misp_sync_router = APIRouter(prefix="/misp-sync", tags=["MISP sync"])
 
 MispSyncRepoDep = Annotated[MispSyncRepository, Depends(get_misp_sync_repo)]
+CollectorAuthDep = Annotated[CollectorAuth, Depends(get_collector_auth)]
+
+
+def _authenticate(
+    connector: str, auth: CollectorAuth, credentials: CredentialsDep
+) -> str:
+    """The connector's MISP instance, if the caller holds the connector's secret."""
+    presented = None if credentials is None else credentials.credentials
+    try:
+        return auth.misp_instance(connector, presented)
+    except CollectorAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _to_response(record: MispEventSync) -> MispEventSyncResponse:
@@ -34,8 +47,13 @@ def _to_response(record: MispEventSync) -> MispEventSyncResponse:
 
 @misp_sync_router.post("/{connector}/events/lookup")
 async def lookup_events(
-    connector: str, body: MispEventSyncLookup, repo: MispSyncRepoDep
+    connector: str,
+    body: MispEventSyncLookup,
+    repo: MispSyncRepoDep,
+    auth: CollectorAuthDep,
+    credentials: CredentialsDep,
 ) -> MispEventSyncLookupResponse:
+    _authenticate(connector, auth, credentials)
     records = await repo.get_many(connector, body.event_uuids)
     return MispEventSyncLookupResponse(
         events=[_to_response(record) for record in records.values()]
@@ -48,7 +66,10 @@ async def put_event(
     event_uuid: str,
     body: MispEventSyncUpdate,
     repo: MispSyncRepoDep,
+    auth: CollectorAuthDep,
+    credentials: CredentialsDep,
 ) -> MispEventSyncResponse:
+    _authenticate(connector, auth, credentials)
     record = MispEventSync(
         connector=connector,
         event_uuid=event_uuid,

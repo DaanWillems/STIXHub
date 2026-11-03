@@ -41,7 +41,9 @@ def _collector(
         config,
         TaxiiClient(httpx.Client(transport=taxii_handler), config.remote_url, "c"),
         PlatformClient(
-            httpx.Client(transport=httpx.MockTransport(_platform_handler)), "http://p"
+            httpx.Client(transport=httpx.MockTransport(_platform_handler)),
+            "http://p",
+            "secret",
         ),
         stop_event=stop,
         backoff_base=0,
@@ -112,7 +114,7 @@ def test_runner_abandons_thread_after_shutdown_timeout(
 def test_create_runner_fails_fast_on_missing_credentials() -> None:
     config = _config().model_copy(update={"credentials_env": "FEED"})
     with pytest.raises(RuntimeError, match="COLLECTOR_CREDENTIALS__FEED__USER"):
-        create_runner([config], "http://p", credentials={})
+        create_runner([config], "http://p", {"feed": "s"}, credentials={})
 
 
 def test_create_runner_builds_misp_connectors() -> None:
@@ -129,10 +131,11 @@ def test_create_runner_builds_misp_connectors() -> None:
     runner = create_runner(
         [config],
         "http://platform",
+        {"circl": "s"},
         on_fatal=None,
         misp_credentials={"circl": MispCredentials(api_key=SecretStr("k"))},
     )
 
     assert runner.threads == []  # nothing runs (or connects) before start()
     with pytest.raises(RuntimeError, match="MISP_CREDENTIALS__CIRCL__API_KEY"):
-        create_runner([config], "http://platform", misp_credentials={})
+        create_runner([config], "http://platform", {"circl": "s"}, misp_credentials={})

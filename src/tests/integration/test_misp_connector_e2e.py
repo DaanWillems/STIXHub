@@ -10,12 +10,11 @@ from models.domain import MispEventOrigin
 from tests.misp_support import (
     EVENT_UUID,
     FakeMisp,
-    Platform,
     connector_config,
     fixture_event,
     make_connector,
-    make_platform,
 )
+from tests.platform_support import Platform, make_platform
 
 REPORT = "11111111-1111-4111-8111-111111111111"
 INDICATOR = "22222222-2222-4222-8222-222222222222"

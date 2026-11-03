@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # MISP API keys keyed by a MISP connector's `credentials_env`, e.g.
     # STIX_HUB_MISP_CREDENTIALS__CIRCL_MISP__API_KEY. Keys are lower-cased.
     MISP_CREDENTIALS: dict[str, MispCredentials] = Field(default_factory=dict)
+    # Secret each collector shares with the platform, keyed by collector name
+    # with "-" as "_", e.g. STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK. Collectors
+    # without one get a random secret per run (see collector_auth.py).
+    COLLECTOR_SECRETS: dict[str, SecretStr] = Field(default_factory=dict)
 
 
 settings = Settings()

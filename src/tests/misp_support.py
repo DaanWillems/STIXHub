@@ -1,29 +1,17 @@
-"""A fake MISP instance and an in-process platform for MISP connector tests."""
+"""A fake MISP instance and helpers for MISP connector tests."""
 
 import copy
 import json
 import threading
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
-
-import httpx
-
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from typing import Any
 
 from collectors.misp.client import MispEventRef, MispRequestError
 from collectors.misp.connector import MispConnector
-from collectors.platform_client import PlatformClient
-from database.repositories.bucket import InMemoryBucketRepository
-from database.repositories.collector import InMemoryCollectorRepository
-from database.repositories.misp_sync import InMemoryMispSyncRepository
-from dependencies import get_bucket_repo, get_collector_repo, get_misp_sync_repo
-from models.domain import Bucket, MispConnectorConfig, StixEntity
-from routes.collectors import collectors_router
-from routes.misp_sync import misp_sync_router
-from services.ingest import ingest_objects
+from models.domain import MispConnectorConfig
+from tests.platform_support import Platform
 
 EVENT_JSON = Path(__file__).parent / "fixtures" / "misp" / "event.json"
 EVENT_UUID = "5e8d5c5a-0b1c-4b8e-9d2a-1a2b3c4d5e6f"
@@ -149,55 +137,6 @@ class FakeMisp:
         self.events[uuid]["published"] = True
 
 
-@dataclass
-class Platform:
-    """The platform's internal API, in-process, with in-memory repositories."""
-
-    client: TestClient
-    buckets: InMemoryBucketRepository
-    sync: InMemoryMispSyncRepository
-
-    def api(self) -> PlatformClient:
-        # TestClient is an httpx.Client that serves the app in-process.
-        return PlatformClient(cast(httpx.Client, self.client), "http://platform")
-
-    async def entities(self, bucket: str) -> list[StixEntity]:
-        return await self.buckets.get_entities(bucket_name=bucket)
-
-    async def ingest(
-        self, bucket: str, objects: list[dict[str, Any]], creator: str
-    ) -> None:
-        """Write objects to a bucket as a feed (or a pipeline) would."""
-        found = await self.buckets.get(bucket_name=bucket)
-        assert found is not None
-        await ingest_objects(self.buckets, found, objects, creator)
-
-    async def copy(self, source: str, sink: str) -> None:
-        """Append every entity of ``source`` to ``sink``, as a pipeline does."""
-        found = await self.buckets.get(bucket_name=sink)
-        assert found is not None and found.id is not None
-        entities = await self.entities(source)
-        await self.buckets.add_entities(
-            found.id,
-            [replace(e, id=0, bucket_id=found.id) for e in entities],
-        )
-
-
-async def make_platform(*buckets: str) -> Platform:
-    bucket_repo = InMemoryBucketRepository()
-    for name in buckets:
-        await bucket_repo.save(Bucket(name=name))
-    collector_repo = InMemoryCollectorRepository()
-    sync_repo = InMemoryMispSyncRepository()
-    app = FastAPI()
-    app.include_router(collectors_router)
-    app.include_router(misp_sync_router)
-    app.dependency_overrides[get_bucket_repo] = lambda: bucket_repo
-    app.dependency_overrides[get_collector_repo] = lambda: collector_repo
-    app.dependency_overrides[get_misp_sync_repo] = lambda: sync_repo
-    return Platform(TestClient(app, base_url="http://platform"), bucket_repo, sync_repo)
-
-
 def connector_config(**overrides: Any) -> MispConnectorConfig:
     values: dict[str, Any] = {
         "type": "misp",
@@ -217,10 +156,11 @@ def make_connector(
     platform: Platform,
     excluded_creators: frozenset[str] = frozenset(),
 ) -> MispConnector:
+    platform.enroll(config)
     connector = MispConnector(
         config,
         misp,
-        platform.api(),
+        platform.api(config.name),
         excluded_creators=excluded_creators,
         stop_event=threading.Event(),
         backoff_base=0,

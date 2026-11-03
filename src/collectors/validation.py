@@ -1,5 +1,6 @@
 from collections.abc import Mapping, Sequence
 
+from collector_auth import secret_key
 from config import CollectorCredentials, MispCredentials, settings
 from models.domain import (
     BucketConfig,
@@ -53,11 +54,12 @@ def validate_collectors(
     """Fail fast on collector config errors: unknown buckets, duplicate names
     and inconsistent MISP connectors."""
     known_buckets = {bucket.name for bucket in bucket_configs}
-    seen_names: set[str] = set()
+    seen_keys: set[str] = set()
     for collector in collector_configs:
-        if collector.name in seen_names:
+        # Names that only differ in case or "-" vs "_" share a secret key.
+        if secret_key(collector.name) in seen_keys:
             raise RuntimeError(f"Duplicate collector name '{collector.name}'")
-        seen_names.add(collector.name)
+        seen_keys.add(secret_key(collector.name))
         if isinstance(collector, MispConnectorConfig):
             _validate_misp_connector(collector, known_buckets)
         elif collector.target_bucket not in known_buckets:

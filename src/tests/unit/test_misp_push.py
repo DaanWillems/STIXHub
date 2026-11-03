@@ -8,14 +8,13 @@ from tests.misp_support import (
     EVENT_UUID,
     T0,
     FakeMisp,
-    Platform,
     all_uuids,
     connector_config,
     fixture_event,
     make_connector,
-    make_platform,
     small_event,
 )
+from tests.platform_support import Platform, make_platform
 
 REPORT = "11111111-1111-4111-8111-111111111111"
 INDICATOR = "22222222-2222-4222-8222-222222222222"

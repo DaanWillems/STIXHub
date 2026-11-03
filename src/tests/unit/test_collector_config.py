@@ -1,6 +1,7 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
+from collector_auth import resolve_collector_secrets
 from collectors.validation import (
     load_credentials,
     load_misp_api_key,
@@ -174,3 +175,25 @@ def test_misp_api_key_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert load_misp_api_key(_misp(), settings.MISP_CREDENTIALS) == "k3y"
     with pytest.raises(RuntimeError, match="MISP_CREDENTIALS__CIRCL__API_KEY"):
         load_misp_api_key(_misp(), credentials={})
+
+
+# --- collector secrets ---
+
+
+def test_collector_secret_comes_from_settings_or_is_random() -> None:
+    configs = [_collector(name="mitre-attack"), _collector(name="other")]
+
+    secrets = resolve_collector_secrets(
+        configs, {"mitre_attack": SecretStr("configured")}
+    )
+
+    assert secrets["mitre-attack"] == "configured"
+    assert len(secrets["other"]) >= 32
+    assert resolve_collector_secrets(configs, {})["other"] != secrets["other"]
+
+
+def test_names_sharing_a_secret_key_are_rejected() -> None:
+    with pytest.raises(RuntimeError, match="Duplicate collector name 'Feed'"):
+        validate_collectors(
+            _BUCKETS, [_collector(name="feed"), _collector(name="Feed")]
+        )

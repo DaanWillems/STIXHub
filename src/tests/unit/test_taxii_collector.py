@@ -118,7 +118,7 @@ def _collector(
         auth=auth,
     )
     platform_client = PlatformClient(
-        httpx.Client(transport=httpx.MockTransport(platform.handle)), PLATFORM
+        httpx.Client(transport=httpx.MockTransport(platform.handle)), PLATFORM, "s"
     )
     return TaxiiCollector(
         config,

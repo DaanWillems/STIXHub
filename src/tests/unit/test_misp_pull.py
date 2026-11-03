@@ -7,13 +7,12 @@ from tests.misp_support import (
     EVENT_UUID,
     T0,
     FakeMisp,
-    Platform,
     connector_config,
     fixture_event,
     make_connector,
-    make_platform,
     small_event,
 )
+from tests.platform_support import Platform, make_platform
 
 OTHER = "6f9e6d6b-1c2d-4c9f-8e3b-2b3c4d5e6f70"
 

@@ -106,6 +106,7 @@ class CollectorRunner:
 def _taxii_collector(
     config: TaxiiCollectorConfig,
     platform_url: str,
+    secret: str,
     stop_event: threading.Event,
     credentials: Mapping[str, CollectorCredentials] | None,
 ) -> tuple[Collector, list[Closeable]]:
@@ -115,7 +116,7 @@ def _taxii_collector(
     collector = TaxiiCollector(
         config,
         TaxiiClient(taxii_http, config.remote_url, config.remote_collection_id, auth),
-        PlatformClient(platform_http, platform_url),
+        PlatformClient(platform_http, platform_url, secret),
         stop_event=stop_event,
     )
     return collector, [taxii_http, platform_http]
@@ -125,6 +126,7 @@ def _misp_connector(
     config: MispConnectorConfig,
     all_configs: Sequence[CollectorConfig],
     platform_url: str,
+    secret: str,
     stop_event: threading.Event,
     credentials: Mapping[str, MispCredentials] | None,
 ) -> tuple[Collector, list[Closeable]]:
@@ -142,7 +144,7 @@ def _misp_connector(
     connector = MispConnector(
         config,
         misp,
-        PlatformClient(platform_http, platform_url),
+        PlatformClient(platform_http, platform_url, secret),
         excluded_creators=same_instance,
         stop_event=stop_event,
     )
@@ -152,11 +154,15 @@ def _misp_connector(
 def create_runner(
     configs: Sequence[CollectorConfig],
     platform_url: str,
+    secrets: Mapping[str, str],
     on_fatal: FatalHandler | None = terminate_process,
     credentials: Mapping[str, CollectorCredentials] | None = None,
     misp_credentials: Mapping[str, MispCredentials] | None = None,
 ) -> CollectorRunner:
     """Build collectors from config. Raises if credentials are misconfigured.
+
+    ``secrets`` holds each collector's platform secret, keyed by collector name
+    (see ``collector_auth.resolve_collector_secrets``).
 
     ``credentials`` and ``misp_credentials`` default to
     ``settings.COLLECTOR_CREDENTIALS`` and ``settings.MISP_CREDENTIALS``.
@@ -167,11 +173,16 @@ def create_runner(
     for config in configs:
         if isinstance(config, MispConnectorConfig):
             collector, closeables = _misp_connector(
-                config, configs, platform_url, stop_event, misp_credentials
+                config,
+                configs,
+                platform_url,
+                secrets[config.name],
+                stop_event,
+                misp_credentials,
             )
         else:
             collector, closeables = _taxii_collector(
-                config, platform_url, stop_event, credentials
+                config, platform_url, secrets[config.name], stop_event, credentials
             )
         collectors.append(collector)
         clients[config.name] = closeables
