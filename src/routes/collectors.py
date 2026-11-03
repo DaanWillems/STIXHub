@@ -7,7 +7,7 @@ only from localhost / the internal network (see specs/taxii-collector.md).
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound
 
@@ -15,10 +15,15 @@ from dependencies import get_bucket_repo, get_collector_repo
 from models.domain import (
     Bucket,
     Collector,
+    CollectorEntity,
+    CollectorEntityLookup,
+    CollectorEntityLookupResponse,
+    CollectorEntityPage,
     CollectorCursorUpdate,
     CollectorRegisterRequest,
     CollectorResponse,
     TaxiiEnvelopeModel,
+    StixEntity,
     TaxiiWriteStatusModel,
 )
 from database.repositories.bucket import BucketRepository
@@ -112,3 +117,43 @@ async def update_cursor(
             status_code=404, detail=f"Collector {collector_id} not found"
         )
     return _to_response(collector)
+
+
+def _entity_response(entity: StixEntity) -> CollectorEntity:
+    return CollectorEntity(
+        id=entity.id,
+        stix_id=entity.stix_id,
+        type=entity.type,
+        creator=entity.creator,
+        other_stix_ids=entity.other_stix_ids,
+        object=entity.object,
+    )
+
+
+@collectors_router.get("/{collector_id}/entities")
+async def list_entities(
+    collector_id: int,
+    collector_repo: CollectorRepoDep,
+    bucket_repo: BucketRepoDep,
+    after: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> CollectorEntityPage:
+    """Entities of the collector's bucket with an ``id`` above ``after``."""
+    collector = await _get_collector(collector_repo, collector_id)
+    entities = await bucket_repo.get_entities_after(collector.bucket_id, after, limit)
+    return CollectorEntityPage(entities=[_entity_response(e) for e in entities])
+
+
+@collectors_router.post("/{collector_id}/entities/lookup")
+async def lookup_entities(
+    collector_id: int,
+    body: CollectorEntityLookup,
+    collector_repo: CollectorRepoDep,
+    bucket_repo: BucketRepoDep,
+) -> CollectorEntityLookupResponse:
+    """The newest entity of the collector's bucket for each ref."""
+    collector = await _get_collector(collector_repo, collector_id)
+    found = await bucket_repo.find_latest_by_refs(collector.bucket_id, body.refs)
+    return CollectorEntityLookupResponse(
+        entities={ref: _entity_response(entity) for ref, entity in found.items()}
+    )

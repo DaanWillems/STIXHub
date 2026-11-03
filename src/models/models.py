@@ -3,13 +3,21 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.ext.mutable import MutableDict
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, UUID as SAUUID
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    UUID as SAUUID,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from enum import Enum
-from models.domain import BucketMode, ProcessingStatus
+from models.domain import BucketMode, MispEventOrigin, ProcessingStatus
 
 
 class StixType(Enum):
@@ -177,6 +185,31 @@ class CollectorModel(Base):
     cursor: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MispEventSyncModel(Base):
+    """Which MISP events a MISP connector has seen, and who owns them."""
+
+    __tablename__ = "misp_event_sync"
+    __table_args__ = (UniqueConstraint("connector", "event_uuid"),)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    connector: Mapped[str] = mapped_column(nullable=False)
+    event_uuid: Mapped[str] = mapped_column(nullable=False)
+    origin: Mapped[str] = mapped_column(
+        SAEnum(
+            MispEventOrigin,
+            values_callable=lambda x: [e.value for e in x],
+            name="misp_event_origin",
+        ),
+        nullable=False,
+    )
+    misp_timestamp: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
 

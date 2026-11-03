@@ -152,6 +152,7 @@ async def test_refs_resolved_in_dependency_order() -> None:
     """A relationship to a connection waits for the connection, which waits
     for its address, whatever order the batch lists them in."""
     repo, bucket = await _setup()
+    assert bucket.id is not None
     address = {
         "type": "ipv4-addr",
         "id": "ipv4-addr--orig",
@@ -180,6 +181,7 @@ async def test_refs_resolved_in_dependency_order() -> None:
 
 async def test_container_refs_keep_original_ids() -> None:
     repo, bucket = await _setup()
+    assert bucket.id is not None
     report = {
         "type": "report",
         "id": "report--orig",

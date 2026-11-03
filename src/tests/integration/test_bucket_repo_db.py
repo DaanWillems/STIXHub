@@ -75,6 +75,7 @@ async def test_add_entities_stores_long_custom_type(
     bucket_repo: DatabaseBucketRepository,
 ) -> None:
     bucket = await bucket_repo.save(Bucket(name="test-bucket"))
+    assert bucket.id is not None
     entity = make_entity(bucket.id, "x-misp-galaxy-cluster--1")
     entity.type = "x-misp-galaxy-cluster-with-a-long-custom-name"
 
@@ -336,6 +337,43 @@ async def test_find_by_refs_scoped_to_buckets_and_type(
     assert set(found) == {"identity--platform", "identity--original"}
     assert found["identity--original"].value == "ACME Corp"
     assert await bucket_repo.find_by_refs([readable.id], "identity", []) == {}
+
+
+async def test_get_entities_after(bucket_repo: DatabaseBucketRepository) -> None:
+    bucket = await bucket_repo.save(Bucket(name="after-bucket"))
+    assert bucket.id is not None
+    await bucket_repo.add_entities(
+        bucket.id, [make_entity(bucket.id, f"indicator--{n}") for n in range(3)]
+    )
+    first, *_ = await bucket_repo.get_entities(bucket_id=bucket.id)
+
+    after = await bucket_repo.get_entities_after(bucket.id, first.id, limit=1)
+
+    assert [e.stix_id for e in after] == ["indicator--1"]
+
+
+async def test_find_latest_by_refs_prefers_newest(
+    bucket_repo: DatabaseBucketRepository,
+) -> None:
+    bucket = await bucket_repo.save(Bucket(name="latest-bucket"))
+    other = await bucket_repo.save(Bucket(name="latest-other"))
+    assert bucket.id is not None and other.id is not None
+    old, new, elsewhere = (
+        make_entity(bucket.id, "ipv4-addr--platform"),
+        make_entity(bucket.id, "ipv4-addr--platform"),
+        make_entity(other.id, "ipv4-addr--platform"),
+    )
+    old.other_stix_ids, new.other_stix_ids = ["ipv4-addr--a"], ["ipv4-addr--b"]
+    await bucket_repo.add_entities(bucket.id, [old, new])
+    await bucket_repo.add_entities(other.id, [elsewhere])
+
+    found = await bucket_repo.find_latest_by_refs(
+        bucket.id, ["ipv4-addr--platform", "ipv4-addr--a", "ipv4-addr--x"]
+    )
+
+    assert found["ipv4-addr--platform"].other_stix_ids == ["ipv4-addr--b"]
+    assert found["ipv4-addr--a"].other_stix_ids == ["ipv4-addr--a"]
+    assert "ipv4-addr--x" not in found
 
 
 async def test_worker_process_batch_writes_sink_and_marks_source(

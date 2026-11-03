@@ -96,3 +96,49 @@ async def test_unknown_collector_returns_404() -> None:
         client.post("/collectors/99/objects", json={"objects": []}).status_code == 404
     )
     assert client.put("/collectors/99/cursor", json={"cursor": "x"}).status_code == 404
+
+
+def _indicator(original_id: str, ip: str) -> dict[str, object]:
+    return {**INDICATOR, "id": original_id, "pattern": f"[ipv4-addr:value = '{ip}']"}
+
+
+async def test_entities_are_paged_by_id() -> None:
+    client, _ = await _client()
+    collector = client.post(
+        "/collectors/register", json={"name": "c", "bucket_name": BUCKET}
+    ).json()
+    objects = [_indicator(f"indicator--{n}", f"198.51.100.{n}") for n in range(3)]
+    client.post(f"/collectors/{collector['id']}/objects", json={"objects": objects})
+    url = f"/collectors/{collector['id']}/entities"
+
+    first = client.get(url, params={"limit": 2}).json()["entities"]
+    rest = client.get(url, params={"after": first[-1]["id"]}).json()["entities"]
+
+    assert [e["other_stix_ids"] for e in first + rest] == [
+        ["indicator--0"],
+        ["indicator--1"],
+        ["indicator--2"],
+    ]
+    assert first[0]["creator"] == "collector:c"
+
+
+async def test_lookup_finds_newest_entity_by_platform_or_original_id() -> None:
+    client, _ = await _client()
+    collector = client.post(
+        "/collectors/register", json={"name": "c", "bucket_name": BUCKET}
+    ).json()
+    submit = f"/collectors/{collector['id']}/objects"
+    old = client.post(submit, json={"objects": [_indicator("indicator--a", "1.1.1.1")]})
+    client.post(submit, json={"objects": [_indicator("indicator--b", "1.1.1.1")]})
+    platform_id = old.json()["successes"][0]["id"]
+
+    resp = client.post(
+        f"/collectors/{collector['id']}/entities/lookup",
+        json={"refs": ["indicator--a", platform_id, "indicator--unknown"]},
+    )
+
+    found = resp.json()["entities"]
+    assert set(found) == {"indicator--a", platform_id}
+    assert found["indicator--a"]["other_stix_ids"] == ["indicator--a"]
+    # Both entities share the platform ID; the newest wins.
+    assert found[platform_id]["other_stix_ids"] == ["indicator--b"]

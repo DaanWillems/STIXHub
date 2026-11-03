@@ -11,6 +11,7 @@ from config import load_platform_config, settings
 from database.database import db
 from database.repositories.bucket import DatabaseBucketRepository
 from routes.collectors import collectors_router
+from routes.misp_sync import misp_sync_router
 from routes.taxii2 import (
     provision_buckets,
     taxii2_router,
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(taxii2_router)
     app.include_router(users_router)
     app.include_router(collectors_router)
+    app.include_router(misp_sync_router)
     return app
 
 

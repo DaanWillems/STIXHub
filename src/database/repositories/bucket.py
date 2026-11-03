@@ -87,6 +87,23 @@ class BucketRepository(ABC):
         """
 
 
+    @abstractmethod
+    async def get_entities_after(
+        self, bucket_id: int, after_id: int, limit: int
+    ) -> list[StixEntity]:
+        """Up to ``limit`` entities of ``bucket_id`` with ``id > after_id``, by ``id``."""
+
+    @abstractmethod
+    async def find_latest_by_refs(
+        self, bucket_id: int, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        """Map STIX IDs to entities of any type stored in ``bucket_id``.
+
+        Like ``find_by_refs``, but when several entities match a ref the
+        newest (highest ``id``) wins. Refs with no match are left out.
+        """
+
+
 class InMemoryBucketRepository(BucketRepository):
     def __init__(self) -> None:
         self._index_counter: int = 0
@@ -202,6 +219,30 @@ class InMemoryBucketRepository(BucketRepository):
         )
         found: dict[str, StixEntity] = {}
         for entity in candidates:
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found
+
+
+    async def get_entities_after(
+        self, bucket_id: int, after_id: int, limit: int
+    ) -> list[StixEntity]:
+        entities = sorted(self._store[bucket_id][1], key=lambda entity: entity.id)
+        return [entity for entity in entities if entity.id > after_id][:limit]
+
+    async def find_latest_by_refs(
+        self, bucket_id: int, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        entities = self._store[bucket_id][1] if bucket_id in self._store else []
+        newest_first = sorted(
+            entities,
+            key=lambda entity: entity.id,
+            reverse=True,
+        )
+        found: dict[str, StixEntity] = {}
+        for entity in newest_first:
             for ref in (entity.stix_id, *entity.other_stix_ids):
                 if ref in wanted:
                     found.setdefault(ref, entity)
@@ -396,6 +437,48 @@ class DatabaseBucketRepository(BucketRepository):
                 ),
             )
             .order_by(StixEntityModel.id)
+        )
+        found: dict[str, StixEntity] = {}
+        for model in result.scalars().all():
+            entity = _entity_from_model(model)
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found
+
+    async def get_entities_after(
+        self, bucket_id: int, after_id: int, limit: int
+    ) -> list[StixEntity]:
+        result = await self._session.execute(
+            select(StixEntityModel)
+            .where(
+                StixEntityModel.bucket_id == bucket_id,
+                StixEntityModel.id > after_id,
+            )
+            .order_by(StixEntityModel.id)
+            .limit(limit)
+        )
+        return [_entity_from_model(model) for model in result.scalars().all()]
+
+    async def find_latest_by_refs(
+        self, bucket_id: int, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        if not wanted:
+            return {}
+        result = await self._session.execute(
+            select(StixEntityModel)
+            .where(
+                StixEntityModel.bucket_id == bucket_id,
+                or_(
+                    StixEntityModel.stix_id.in_(wanted),
+                    *(
+                        StixEntityModel.other_stix_ids.contains([ref])
+                        for ref in wanted
+                    ),
+                ),
+            )
+            .order_by(StixEntityModel.id.desc())
         )
         found: dict[str, StixEntity] = {}
         for model in result.scalars().all():

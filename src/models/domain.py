@@ -131,6 +131,68 @@ class Collector:
     cursor: str | None = None
 
 
+class MispEventOrigin(str, Enum):
+    """Who owns a MISP event: STIXHub only ever writes events it owns."""
+
+    misp = "misp"
+    stixhub = "stixhub"
+
+
+@dataclass
+class MispEventSync:
+    """What a MISP connector knows about one MISP event."""
+
+    connector: str
+    event_uuid: str
+    origin: MispEventOrigin
+    # The event's MISP timestamp at the last sync; None while an add is pending.
+    misp_timestamp: int | None = None
+
+
+class MispEventSyncUpdate(BaseModel):
+    origin: MispEventOrigin
+    misp_timestamp: int | None = None
+
+
+class MispEventSyncResponse(BaseModel):
+    connector: str
+    event_uuid: str
+    origin: MispEventOrigin
+    misp_timestamp: int | None = None
+
+
+class MispEventSyncLookup(BaseModel):
+    event_uuids: list[str]
+
+
+class MispEventSyncLookupResponse(BaseModel):
+    events: list[MispEventSyncResponse]
+
+
+class CollectorEntity(BaseModel):
+    """An entity as the internal collector API hands it to a connector."""
+
+    id: int
+    stix_id: str
+    type: str
+    creator: str
+    other_stix_ids: list[str]
+    object: dict[str, Any]
+
+
+class CollectorEntityPage(BaseModel):
+    entities: list[CollectorEntity]
+
+
+class CollectorEntityLookup(BaseModel):
+    refs: list[str]
+
+
+class CollectorEntityLookupResponse(BaseModel):
+    # Keyed by the ref that was looked up.
+    entities: dict[str, CollectorEntity]
+
+
 class CollectorRegisterRequest(BaseModel):
     name: str = Field(min_length=1)
     bucket_name: str
