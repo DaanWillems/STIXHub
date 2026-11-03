@@ -125,6 +125,8 @@ class StixEntityModel(Base):
     other_stix_ids: Mapped[Optional[list[str]]] = mapped_column(
         JSONB, nullable=True, default=None
     )
+    # Name of the last pipeline that wrote this entity; NULL when ingested directly.
+    pipeline: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
 
 
 class CollectorModel(Base):

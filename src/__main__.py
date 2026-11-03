@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 
 import uvicorn
 
@@ -18,18 +19,30 @@ async def run_server_worker() -> None:
     config = uvicorn.Config("server.__main__:app")
     server = uvicorn.Server(config)
     worker = Worker()
-    await asyncio.gather(server.serve(), worker.run())
+
+    async def serve() -> None:
+        # uvicorn handles SIGINT/SIGTERM; stop the worker when the server exits.
+        try:
+            await server.serve()
+        finally:
+            worker.stop()
+
+    await asyncio.gather(serve(), worker.run())
 
 
 def main() -> None:
     args = parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     if args.mode == "server":
         uvicorn.run("server.__main__:app")
     elif args.mode == "worker":
-        from worker.__main__ import Worker
+        from worker.__main__ import main as run_worker
 
-        asyncio.run(Worker().run())
+        asyncio.run(run_worker())
     else:  # server-worker
         asyncio.run(run_server_worker())
 

@@ -25,6 +25,7 @@ def _entity_from_model(model: StixEntityModel) -> StixEntity:
         object=model.object,
         status=ProcessingStatus(model.status),
         other_stix_ids=model.other_stix_ids or [],
+        pipeline=model.pipeline,
     )
 
 
@@ -73,10 +74,23 @@ class BucketRepository(ABC):
         ``other_stix_ids``. IDs with no match are left out of the result.
         """
 
+    @abstractmethod
+    async def find_by_refs(
+        self, bucket_ids: list[int], stix_type: str, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        """Map STIX IDs to entities of ``stix_type`` stored in ``bucket_ids``.
+
+        A ref matches an entity when it equals the entity's platform
+        ``stix_id`` or appears in its ``other_stix_ids``. When several
+        entities match, the oldest (lowest ``id``) wins. Refs with no match
+        are left out of the result.
+        """
+
 
 class InMemoryBucketRepository(BucketRepository):
     def __init__(self) -> None:
         self._index_counter: int = 0
+        self._entity_counter: int = 0
         self._store: dict[int, tuple[Bucket, list[StixEntity]]] = {}
 
     async def save(self, bucket_in: Bucket) -> Bucket:
@@ -124,6 +138,11 @@ class InMemoryBucketRepository(BucketRepository):
         self, bucket_id: int, entities_in: list[StixEntity]
     ) -> Bucket:
         bucket, entities = self._store[bucket_id]
+        # Like the database's autoincrement: id 0 means "not assigned yet".
+        for entity in entities_in:
+            if entity.id == 0:
+                self._entity_counter += 1
+                entity.id = self._entity_counter
         self._store[bucket_id] = (bucket, entities + entities_in)
         return bucket
 
@@ -166,6 +185,27 @@ class InMemoryBucketRepository(BucketRepository):
                 if other_id in wanted:
                     resolved.setdefault(other_id, entity.stix_id)
         return resolved
+
+    async def find_by_refs(
+        self, bucket_ids: list[int], stix_type: str, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        candidates = sorted(
+            (
+                entity
+                for bucket_id in bucket_ids
+                if bucket_id in self._store
+                for entity in self._store[bucket_id][1]
+                if entity.type == stix_type
+            ),
+            key=lambda entity: entity.id,
+        )
+        found: dict[str, StixEntity] = {}
+        for entity in candidates:
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found
 
 
 class DatabaseBucketRepository(BucketRepository):
@@ -239,6 +279,7 @@ class DatabaseBucketRepository(BucketRepository):
                 platform_modified=entity.platform_modified,
                 object=entity.object,
                 other_stix_ids=entity.other_stix_ids,
+                pipeline=entity.pipeline,
             )
             self._session.add(model)
         await self._session.flush()
@@ -270,6 +311,7 @@ class DatabaseBucketRepository(BucketRepository):
                     status=entity.status.value,
                     object=entity.object,
                     other_stix_ids=entity.other_stix_ids,
+                    pipeline=entity.pipeline,
                 )
             )
         await self._session.flush()
@@ -333,3 +375,32 @@ class DatabaseBucketRepository(BucketRepository):
                 if other_id in wanted:
                     resolved.setdefault(other_id, platform_id)
         return resolved
+
+    async def find_by_refs(
+        self, bucket_ids: list[int], stix_type: str, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        if not wanted or not bucket_ids:
+            return {}
+        result = await self._session.execute(
+            select(StixEntityModel)
+            .where(
+                StixEntityModel.bucket_id.in_(bucket_ids),
+                StixEntityModel.type == stix_type,
+                or_(
+                    StixEntityModel.stix_id.in_(wanted),
+                    *(
+                        StixEntityModel.other_stix_ids.contains([ref])
+                        for ref in wanted
+                    ),
+                ),
+            )
+            .order_by(StixEntityModel.id)
+        )
+        found: dict[str, StixEntity] = {}
+        for model in result.scalars().all():
+            entity = _entity_from_model(model)
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found

@@ -24,6 +24,7 @@ from models.domain import (
     User,
 )
 from database.repositories.bucket import BucketRepository
+from permissions import get_effective_permissions
 from services.ingest import ingest_objects
 
 logger = logging.getLogger(__name__)
@@ -34,21 +35,6 @@ type CollectionsRepository = dict[str, CollectionConfig]
 
 BucketRepoDep = Annotated[BucketRepository, Depends(get_bucket_repo)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
-
-
-def _get_effective_permissions(
-    user_roles: list[str], role_configs: list[RoleConfig]
-) -> tuple[set[str], set[str]]:
-    can_read: set[str] = set()
-    can_write: set[str] = set()
-
-    role_map = {role.name: role for role in role_configs}
-
-    for role_name in user_roles:
-        if role := role_map.get(role_name):
-            can_read.update(role.can_read)
-            can_write.update(role.can_write)
-    return can_read, can_write
 
 
 async def provision_buckets(
@@ -149,7 +135,7 @@ def taxii_collections_root(
     configs: CollectionsRepository = Depends(get_active_collections),
     platform_config: PlatformConfig = Depends(get_platform_config),
 ) -> TaxiiCollectionsRootResponseModel:
-    can_read, can_write = _get_effective_permissions(user.roles, platform_config.roles)
+    can_read, can_write = get_effective_permissions(user.roles, platform_config.roles)
     accessible = can_read | can_write
     return TaxiiCollectionsRootResponseModel(
         collections=[
@@ -207,7 +193,7 @@ async def get_collection_objects(
             ).model_dump(exclude_none=True),
         )
 
-    can_read, _ = _get_effective_permissions(user.roles, platform_config.roles)
+    can_read, _ = get_effective_permissions(user.roles, platform_config.roles)
     if config.bucket_name not in can_read:
         return JSONResponse(
             status_code=403,
@@ -288,7 +274,7 @@ async def add_collection_objects(
             ).model_dump(exclude_none=True),
         )
 
-    _, can_write = _get_effective_permissions(user.roles, platform_config.roles)
+    _, can_write = get_effective_permissions(user.roles, platform_config.roles)
     if config.bucket_name not in can_write:
         return JSONResponse(
             status_code=403,
