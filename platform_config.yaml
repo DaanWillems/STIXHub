@@ -70,10 +70,10 @@ pipelines:
        value: "test"
      - action: "add"
        field: "labels"
-       value: "test"
+       value: "banaan"
        condition:
-         field: "a"
+         field: "type"
          type: "eq"
-         value: "bb"
+         value: "campaign"
 
       

@@ -47,6 +47,8 @@ docker compose up -d
 - `STIX_HUB_DATABASE_ENGINE_ECHO` (default: true)
 - `STIX_HUB_PLATFORM_CONFIG` (default: `platform_config.yaml`) — buckets, collections, roles, collectors, pipelines
 - `STIX_HUB_ADMIN_API_KEY` — key for the `/users` admin endpoints
+- `STIX_HUB_WORKER_POLL_INTERVAL` (default: 5) — seconds the pipeline worker sleeps when nothing is pending
+- `STIX_HUB_WORKER_BATCH_SIZE` (default: 10) — entities taken from a source per batch
 
 ## Architecture
 

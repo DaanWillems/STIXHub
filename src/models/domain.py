@@ -57,8 +57,12 @@ class PipelineExpression(BaseModel):
     value: str
 
 class PipelineCondition(BaseModel):
+    """AND / OR group of sub-conditions, which may themselves be groups."""
+
     type: PipelineBooleanType
-    condition: list[PipelineConditionType]
+    condition: list["PipelineCondition | PipelineExpression"]
+
+PipelineCondition.model_rebuild()
 
 class PipelineStepConfig(BaseModel):
     action: str
@@ -115,6 +119,8 @@ class StixEntity:
     object: dict
     status: ProcessingStatus = field(default=ProcessingStatus.pending)
     other_stix_ids: list[str] = field(default_factory=list)
+    # Name of the last pipeline that wrote this entity; None when ingested directly.
+    pipeline: str | None = None
 
 
 @dataclass

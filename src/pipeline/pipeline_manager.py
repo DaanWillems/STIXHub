@@ -47,7 +47,41 @@ class PipelineManager:
                     f"cannot write sink bucket '{sink}'"
                 )
 
+    def _validate_no_cycles(self) -> None:
+        """Reject pipelines that, together, route entities back into a bucket they came from.
+
+        Sink entities are written as pending, so a cycle (including a pipeline
+        whose sink is one of its own sources) would reprocess entities forever.
+        """
+        graph: dict[str, set[str]] = {}
+        for pipeline in self.platform_config.pipelines:
+            for source in pipeline.sources:
+                graph.setdefault(source, set()).update(pipeline.sinks)
+
+        visited: set[str] = set()
+
+        def visit(bucket: str, path: list[str]) -> None:
+            if bucket in path:
+                cycle = path[path.index(bucket):] + [bucket]
+                raise PipelineValidationError(
+                    f"Pipelines form a cycle: {' -> '.join(cycle)}"
+                )
+            if bucket in visited:
+                return
+            for sink in sorted(graph.get(bucket, ())):
+                visit(sink, [*path, bucket])
+            visited.add(bucket)
+
+        for bucket in sorted(graph):
+            visit(bucket, [])
+
     def _load_pipelines(self):
+        try:
+            self._validate_no_cycles()
+        except PipelineValidationError as e:
+            logger.error(f"Pipeline failed validation: {e}")
+            raise
+
         for pipeline in self.platform_config.pipelines:
             try:
                 self._validate_role(pipeline)

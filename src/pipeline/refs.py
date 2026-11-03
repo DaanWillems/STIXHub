@@ -149,8 +149,5 @@ class RefResolver:
                 if ref not in refs:
                     refs.append(ref)
             obj[MARKINGS_FIELD] = refs
-        elif isinstance(markings, str):
-            # Adding a marking to an object without any yields a bare string.
-            obj[MARKINGS_FIELD] = [ref_for(MARKINGS_FIELD, "marking-definition", markings)]
 
         return resolved.entity

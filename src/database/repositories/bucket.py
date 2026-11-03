@@ -25,6 +25,7 @@ def _entity_from_model(model: StixEntityModel) -> StixEntity:
         object=model.object,
         status=ProcessingStatus(model.status),
         other_stix_ids=model.other_stix_ids or [],
+        pipeline=model.pipeline,
     )
 
 
@@ -89,6 +90,7 @@ class BucketRepository(ABC):
 class InMemoryBucketRepository(BucketRepository):
     def __init__(self) -> None:
         self._index_counter: int = 0
+        self._entity_counter: int = 0
         self._store: dict[int, tuple[Bucket, list[StixEntity]]] = {}
 
     async def save(self, bucket_in: Bucket) -> Bucket:
@@ -136,6 +138,11 @@ class InMemoryBucketRepository(BucketRepository):
         self, bucket_id: int, entities_in: list[StixEntity]
     ) -> Bucket:
         bucket, entities = self._store[bucket_id]
+        # Like the database's autoincrement: id 0 means "not assigned yet".
+        for entity in entities_in:
+            if entity.id == 0:
+                self._entity_counter += 1
+                entity.id = self._entity_counter
         self._store[bucket_id] = (bucket, entities + entities_in)
         return bucket
 
@@ -272,6 +279,7 @@ class DatabaseBucketRepository(BucketRepository):
                 platform_modified=entity.platform_modified,
                 object=entity.object,
                 other_stix_ids=entity.other_stix_ids,
+                pipeline=entity.pipeline,
             )
             self._session.add(model)
         await self._session.flush()
@@ -303,6 +311,7 @@ class DatabaseBucketRepository(BucketRepository):
                     status=entity.status.value,
                     object=entity.object,
                     other_stix_ids=entity.other_stix_ids,
+                    pipeline=entity.pipeline,
                 )
             )
         await self._session.flush()
