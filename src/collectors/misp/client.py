@@ -126,8 +126,8 @@ class PyMispClient:
                     tool="STIXHub",
                 )
             except PyMISPError as exc:
-                raise MispUnavailable(f"Cannot connect to MISP: {exc}") from exc
-            except (requests.ConnectionError, requests.Timeout) as exc:
+                # PyMISP reports an unreachable server and a rejected key
+                # alike, so both are retried.
                 raise MispUnavailable(f"Cannot connect to MISP: {exc}") from exc
         return self._misp
 

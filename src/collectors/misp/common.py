@@ -46,6 +46,19 @@ class Retrier:
         )
 
 
+def load_cursor(name: str, raw: str | None, parse: Callable[[str], T]) -> T | None:
+    """Parse a stored cursor; a malformed one is a registration error."""
+    if raw is None:
+        return None
+    try:
+        return parse(raw)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RegistrationError(
+            f"'{name}' has a stored cursor it can't read ({raw!r}); was the "
+            "collector renamed?"
+        ) from exc
+
+
 def register(
     platform: PlatformClient, retry: Retrier, name: str, bucket: str
 ) -> CollectorResponse:

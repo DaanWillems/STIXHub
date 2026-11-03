@@ -9,6 +9,7 @@ from enum import Enum
 from functools import partial
 from typing import Any
 
+from collector_auth import push_registration
 from collectors.misp.client import (
     MispApi,
     MispRequestError,
@@ -16,7 +17,7 @@ from collectors.misp.client import (
     created_by,
     event_timestamp,
 )
-from collectors.misp.common import Retrier, register
+from collectors.misp.common import Retrier, load_cursor, register
 from collectors.misp.convert import ConversionError, stix_to_event
 from collectors.platform_client import PlatformClient
 from collectors.retry import CollectorStopped
@@ -45,9 +46,8 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def push_name(connector_name: str) -> str:
-    """The name the push side registers under."""
-    return f"{connector_name}:push"
+# The platform grants this registration read access to the push bucket.
+push_name = push_registration
 
 
 def object_refs(obj: dict[str, Any]) -> Iterator[str]:
@@ -123,7 +123,7 @@ class MispPusher:
             self._push.source_bucket,
         )
         self.collector_id = registration.id
-        self.cursor = int(registration.cursor or 0)
+        self.cursor = load_cursor(push_name(self._name), registration.cursor, int) or 0
 
     def run_once(self) -> int:
         """Push every container added since the cursor. Returns events written."""
@@ -154,7 +154,16 @@ class MispPusher:
             for container in sorted(newest.values(), key=lambda e: e.id):
                 if self._stop.is_set():
                     raise CollectorStopped
-                outcome = self._push_container(collector_id, container)
+                try:
+                    outcome = self._push_container(collector_id, container)
+                except MispRequestError as exc:
+                    logger.error(
+                        "[%s] MISP refused %s: %s",
+                        self._name,
+                        original_id(container),
+                        exc,
+                    )
+                    outcome = _Outcome.SKIPPED
                 if outcome is _Outcome.DEFERRED:
                     # Resume at this container next cycle; nothing after it
                     # is pushed before it.

@@ -1,5 +1,6 @@
 import pytest
 
+from collectors.misp.common import RegistrationError
 from collectors.misp.convert import ConversionError, event_to_stix
 from collectors.misp.puller import MispPuller, PullCursor
 from models.domain import MispEventOrigin, MispEventSync
@@ -173,3 +174,40 @@ async def test_events_pushed_by_another_connector_on_the_same_misp_are_not_pulle
 
     assert pusher.pusher.run_once() == 1
     assert puller.puller.run_once() == 0
+
+
+async def test_every_index_page_is_read() -> None:
+    misp = FakeMisp()
+    for n in range(3):
+        misp.seed(small_event(f"{n}{OTHER[1:]}", f"Event {n}", T0 + n))
+    pull, platform = await _pull(misp, page_size=1)
+
+    assert pull.run_once() == 3
+    assert len(await _reports(platform)) == 3
+
+
+async def test_event_the_platform_rejects_is_retried_next_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    misp = FakeMisp()
+    misp.seed(small_event(EVENT_UUID, "Rejected", T0))
+    pull, platform = await _pull(misp)
+    cursor = pull.cursor
+    invalid = [{"type": "indicator", "id": "indicator--no-spec-version"}]
+    monkeypatch.setattr("collectors.misp.puller.event_to_stix", lambda event: invalid)
+
+    assert pull.run_once() == 0
+
+    assert pull.cursor == cursor
+    assert await platform.sync.get_many(INSTANCE, [EVENT_UUID]) == {}
+
+
+async def test_unreadable_stored_cursor_fails_registration() -> None:
+    platform = await make_platform("raw")
+    config = connector_config(push=None)
+    platform.enroll(config)
+    api = platform.api(config.name)
+    api.update_cursor(api.register(config.name, "raw").id, "2026-01-01T00:00:00Z")
+
+    with pytest.raises(RegistrationError, match="can't read"):
+        make_connector(config, FakeMisp(), platform)

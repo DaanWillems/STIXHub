@@ -15,7 +15,7 @@ from collectors.misp.client import (
     created_by,
     index_position,
 )
-from collectors.misp.common import Retrier, register
+from collectors.misp.common import Retrier, load_cursor, register
 from collectors.misp.convert import ConversionError, event_to_stix
 from collectors.platform_client import PlatformClient
 from collectors.retry import CollectorStopped
@@ -41,9 +41,7 @@ class PullCursor:
     uuids: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
-    def load(cls, raw: str | None, default_timestamp: int) -> "PullCursor":
-        if raw is None:
-            return cls(default_timestamp)
+    def parse(cls, raw: str) -> "PullCursor":
         data = json.loads(raw)
         return cls(int(data["timestamp"]), frozenset(data["uuids"]))
 
@@ -101,7 +99,9 @@ class MispPuller:
         lookback = timedelta(days=self._pull.initial_lookback_days)
         start = int((self._clock() - lookback).timestamp())
         self.collector_id = registration.id
-        self.cursor = PullCursor.load(registration.cursor, start)
+        self.cursor = load_cursor(
+            self._name, registration.cursor, PullCursor.parse
+        ) or PullCursor(start)
 
     def _candidates(self, cursor: PullCursor) -> list[MispEventRef]:
         """Every event changed since the cursor, oldest first."""

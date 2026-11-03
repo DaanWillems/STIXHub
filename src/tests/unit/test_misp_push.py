@@ -112,6 +112,15 @@ async def test_report_becomes_event_with_what_it_references() -> None:
     assert push.run_once() == 0
 
 
+async def test_every_page_of_the_bucket_is_read() -> None:
+    misp = FakeMisp()
+    push, platform = await _push(misp, batch_size=1)
+    await platform.ingest("refined", _feed(), creator="feed")
+
+    assert push.run_once() == 1
+    assert push.cursor == max(e.id for e in await platform.entities("refined"))
+
+
 async def test_newer_report_version_updates_the_event_and_publishes() -> None:
     misp = FakeMisp()
     push, platform = await _push(misp, publish=True)
