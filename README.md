@@ -33,6 +33,14 @@ STIXHub is currently not production ready, but does already support a number of 
 # Getting started
 ## Docker deploy
 ## Development environment
+### Debugging in VS Code
+`.vscode/launch.json` has two configurations: **STIXHub: server** (the API) and **STIXHub: worker** (the pipeline worker). Their environment is in `.vscode/stixhub.env`.
+
+1. Create a virtual environment and run `pip install -e ".[dev]"` in it.
+2. Select it in VS Code (*Python: Select Interpreter*).
+3. Start PostgreSQL: `docker compose up -d postgres`.
+4. Open *Run and Debug*, pick **STIXHub: server** or **STIXHub: worker**, and press F5. To debug both at once, start one and then the other.
+
 
 ## Philosophy
 STIX and TAXII are the most widely accepted standards for CTI. They are vendor agnostic, and machine readable, enabling rapid integration with products and quick exchange of information. 
