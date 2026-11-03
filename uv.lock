@@ -1654,7 +1654,6 @@ dependencies = [
     { name = "pymisp" },
     { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "stix2" },
     { name = "uvicorn" },
 ]
 
@@ -1684,7 +1683,6 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sqlalchemy", extras = ["asyncio"] },
-    { name = "stix2", specifier = ">=3.0.2,<4" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "uvicorn" },
 ]

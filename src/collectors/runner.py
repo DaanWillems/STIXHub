@@ -7,11 +7,13 @@ from typing import Protocol
 
 import httpx
 
+from collectors.misp.client import PyMispClient
+from collectors.misp.connector import MispConnector
 from collectors.platform_client import PlatformClient
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from collectors.validation import load_credentials
-from config import CollectorCredentials
+from collectors.validation import load_credentials, load_misp_api_key
+from config import CollectorCredentials, MispCredentials
 from models.domain import CollectorConfig, MispConnectorConfig, TaxiiCollectorConfig
 
 logger = logging.getLogger(__name__)
@@ -119,25 +121,58 @@ def _taxii_collector(
     return collector, [taxii_http, platform_http]
 
 
+def _misp_connector(
+    config: MispConnectorConfig,
+    all_configs: Sequence[CollectorConfig],
+    platform_url: str,
+    stop_event: threading.Event,
+    credentials: Mapping[str, MispCredentials] | None,
+) -> tuple[Collector, list[Closeable]]:
+    api_key = load_misp_api_key(config, credentials)
+    misp = PyMispClient(config.url, api_key, config.verify_tls, HTTP_TIMEOUT_SECONDS)
+    platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+    # Intel pulled from the same MISP instance by another connector must not be
+    # pushed back to it either.
+    same_instance = frozenset(
+        f"collector:{other.name}"
+        for other in all_configs
+        if isinstance(other, MispConnectorConfig)
+        and other.normalized_url == config.normalized_url
+    )
+    connector = MispConnector(
+        config,
+        misp,
+        PlatformClient(platform_http, platform_url),
+        excluded_creators=same_instance,
+        stop_event=stop_event,
+    )
+    return connector, [misp, platform_http]
+
+
 def create_runner(
     configs: Sequence[CollectorConfig],
     platform_url: str,
     on_fatal: FatalHandler | None = terminate_process,
     credentials: Mapping[str, CollectorCredentials] | None = None,
+    misp_credentials: Mapping[str, MispCredentials] | None = None,
 ) -> CollectorRunner:
     """Build collectors from config. Raises if credentials are misconfigured.
 
-    ``credentials`` defaults to ``settings.COLLECTOR_CREDENTIALS``.
+    ``credentials`` and ``misp_credentials`` default to
+    ``settings.COLLECTOR_CREDENTIALS`` and ``settings.MISP_CREDENTIALS``.
     """
     stop_event = threading.Event()
     collectors: list[Collector] = []
     clients: dict[str, list[Closeable]] = {}
     for config in configs:
         if isinstance(config, MispConnectorConfig):
-            raise NotImplementedError("MISP connectors are not wired up yet")
-        collector, closeables = _taxii_collector(
-            config, platform_url, stop_event, credentials
-        )
+            collector, closeables = _misp_connector(
+                config, configs, platform_url, stop_event, misp_credentials
+            )
+        else:
+            collector, closeables = _taxii_collector(
+                config, platform_url, stop_event, credentials
+            )
         collectors.append(collector)
         clients[config.name] = closeables
     return CollectorRunner(collectors, stop_event, on_fatal, clients)

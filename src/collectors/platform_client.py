@@ -2,7 +2,16 @@ from typing import Any
 
 import httpx
 
-from models.domain import CollectorResponse, TaxiiWriteStatusModel
+from models.domain import (
+    CollectorEntity,
+    CollectorEntityLookupResponse,
+    CollectorEntityPage,
+    CollectorResponse,
+    MispEventOrigin,
+    MispEventSync,
+    MispEventSyncLookupResponse,
+    TaxiiWriteStatusModel,
+)
 
 
 class PlatformClient:
@@ -38,5 +47,57 @@ class PlatformClient:
         response = self._http.put(
             f"{self._base_url}/collectors/{collector_id}/cursor",
             json={"cursor": cursor},
+        )
+        response.raise_for_status()
+
+    def list_entities(
+        self, collector_id: int, after: int, limit: int
+    ) -> list[CollectorEntity]:
+        response = self._http.get(
+            f"{self._base_url}/collectors/{collector_id}/entities",
+            params={"after": after, "limit": limit},
+        )
+        response.raise_for_status()
+        return CollectorEntityPage.model_validate(response.json()).entities
+
+    def lookup_entities(
+        self, collector_id: int, refs: list[str]
+    ) -> dict[str, CollectorEntity]:
+        response = self._http.post(
+            f"{self._base_url}/collectors/{collector_id}/entities/lookup",
+            json={"refs": refs},
+        )
+        response.raise_for_status()
+        return CollectorEntityLookupResponse.model_validate(response.json()).entities
+
+    def lookup_misp_events(
+        self, connector: str, event_uuids: list[str]
+    ) -> dict[str, MispEventSync]:
+        response = self._http.post(
+            f"{self._base_url}/misp-sync/{connector}/events/lookup",
+            json={"event_uuids": event_uuids},
+        )
+        response.raise_for_status()
+        events = MispEventSyncLookupResponse.model_validate(response.json()).events
+        return {
+            event.event_uuid: MispEventSync(
+                connector=event.connector,
+                event_uuid=event.event_uuid,
+                origin=event.origin,
+                misp_timestamp=event.misp_timestamp,
+            )
+            for event in events
+        }
+
+    def put_misp_event(
+        self,
+        connector: str,
+        event_uuid: str,
+        origin: MispEventOrigin,
+        misp_timestamp: int | None,
+    ) -> None:
+        response = self._http.put(
+            f"{self._base_url}/misp-sync/{connector}/events/{event_uuid}",
+            json={"origin": origin.value, "misp_timestamp": misp_timestamp},
         )
         response.raise_for_status()

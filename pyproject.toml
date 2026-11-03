@@ -25,7 +25,6 @@ dependencies = [
     # misp-stix output changes between releases: move the pin deliberately.
     "misp-stix>=2026.10,<2027",
     "pymisp>=2.5.34.1,<3",
-    "stix2>=3.0.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -50,8 +49,8 @@ warn_unused_configs = true
 strict = true
 check_untyped_defs = true
 
-# misp-stix and stix2 ship without type information; only
-# collectors/misp/client.py and convert.py import them.
+# misp-stix ships without type information; only collectors/misp/convert.py
+# imports it.
 [[tool.mypy.overrides]]
-module = ["misp_stix_converter.*", "stix2.*"]
+module = ["misp_stix_converter.*"]
 ignore_missing_imports = true

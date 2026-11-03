@@ -5,12 +5,14 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner, create_runner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from models.domain import TaxiiCollectorConfig
+from config import MispCredentials
+from models.domain import MispConnectorConfig, TaxiiCollectorConfig
 
 
 def _config(name: str = "feed", shutdown_timeout: float = 5) -> TaxiiCollectorConfig:
@@ -111,3 +113,26 @@ def test_create_runner_fails_fast_on_missing_credentials() -> None:
     config = _config().model_copy(update={"credentials_env": "FEED"})
     with pytest.raises(RuntimeError, match="COLLECTOR_CREDENTIALS__FEED__USER"):
         create_runner([config], "http://p", credentials={})
+
+
+def test_create_runner_builds_misp_connectors() -> None:
+    config = MispConnectorConfig.model_validate(
+        {
+            "type": "misp",
+            "name": "circl",
+            "url": "https://misp.example.org",
+            "credentials_env": "CIRCL",
+            "push": {"source_bucket": "intel"},
+        }
+    )
+
+    runner = create_runner(
+        [config],
+        "http://platform",
+        on_fatal=None,
+        misp_credentials={"circl": MispCredentials(api_key=SecretStr("k"))},
+    )
+
+    assert runner.threads == []  # nothing runs (or connects) before start()
+    with pytest.raises(RuntimeError, match="MISP_CREDENTIALS__CIRCL__API_KEY"):
+        create_runner([config], "http://platform", misp_credentials={})
