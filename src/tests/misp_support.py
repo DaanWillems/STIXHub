@@ -68,6 +68,10 @@ def all_uuids(event: dict[str, Any]) -> set[str]:
     }
 
 
+class _Hidden(Exception):
+    pass
+
+
 @dataclass
 class FakeMisp:
     """An in-memory MISP instance implementing ``MispApi``.
@@ -91,6 +95,10 @@ class FakeMisp:
 
     def fail_next(self, operation: str, uuid: str, error: Exception) -> None:
         self.failures[(operation, uuid)] = error
+
+    def hide_once(self, uuid: str) -> None:
+        """Answer the next get of the event as if it didn't exist (yet)."""
+        self.fail_next("get", uuid, _Hidden())
 
     def lose_responses(self, operation: str, uuid: str, times: int = 1) -> None:
         self.lost_responses[(operation, uuid)] = times
@@ -168,7 +176,10 @@ class FakeMisp:
         )
 
     def get_event(self, uuid: str) -> dict[str, Any] | None:
-        self._maybe_fail("get", uuid)
+        try:
+            self._maybe_fail("get", uuid)
+        except _Hidden:
+            return None
         event = self.events.get(uuid)
         return copy.deepcopy(event) if event is not None else None
 

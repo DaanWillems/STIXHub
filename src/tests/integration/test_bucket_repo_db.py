@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from models.domain import Bucket, ProcessingStatus, StixEntity
 from database.repositories.bucket import DatabaseBucketRepository
@@ -424,7 +424,9 @@ async def test_worker_process_batch_writes_sink_and_marks_source(
     assert source_entity.object["labels"] == []
 
 
-async def test_entities_after_never_pass_a_row_still_being_committed(engine) -> None:
+async def test_entities_after_never_pass_a_row_still_being_committed(
+    engine: AsyncEngine,
+) -> None:
     """A slow transaction takes a lower id than a fast one but commits later;
     a reader must not return the fast row (and move its cursor past the slow
     one) until the slow one has committed."""
@@ -432,22 +434,23 @@ async def test_entities_after_never_pass_a_row_still_being_committed(engine) -> 
     async with sessions() as setup, setup.begin():
         bucket = await DatabaseBucketRepository(setup).save(Bucket(name="in-flight"))
     assert bucket.id is not None
+    bucket_id: int = bucket.id
 
     async def visible() -> list[str]:
         async with sessions() as reader, reader.begin():
             found = await DatabaseBucketRepository(reader).get_entities_after(
-                bucket.id, 0, 10
+                bucket_id, 0, 10
             )
             return [e.stix_id for e in found]
 
     async with sessions() as slow:
         await slow.begin()
         await DatabaseBucketRepository(slow).add_entities(
-            bucket.id, [make_entity(bucket.id, "indicator--slow")]
+            bucket_id, [make_entity(bucket_id, "indicator--slow")]
         )
         async with sessions() as fast, fast.begin():
             await DatabaseBucketRepository(fast).add_entities(
-                bucket.id, [make_entity(bucket.id, "indicator--fast")]
+                bucket_id, [make_entity(bucket_id, "indicator--fast")]
             )
 
         assert await visible() == []
@@ -456,4 +459,4 @@ async def test_entities_after_never_pass_a_row_still_being_committed(engine) -> 
 
     assert await visible() == ["indicator--slow", "indicator--fast"]
     async with sessions() as cleanup, cleanup.begin():
-        await DatabaseBucketRepository(cleanup).delete(bucket.id)
+        await DatabaseBucketRepository(cleanup).delete(bucket_id)

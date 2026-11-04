@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from collectors.misp.client import MispRequestError
+from collectors.misp.client import MispRequestError, MispUnavailable
 from collectors.misp.pusher import MispPusher
 from collectors.retry import RetriesExhausted
 from models.domain import MispEventOrigin, MispEventSync
@@ -309,6 +309,48 @@ async def test_add_whose_response_got_lost_is_adopted_not_repeated() -> None:
     assert await _record(platform) == MispEventSync(
         INSTANCE, REPORT, STIXHUB, int(misp.events[REPORT]["timestamp"]), OUR_ORG
     )
+
+
+async def test_refused_add_skips_the_report() -> None:
+    misp = FakeMisp()
+    misp.fail_next("add", REPORT, MispRequestError(400, "Invalid event"))
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+
+    assert push.run_once() == 0
+
+    assert misp.events == {}
+    assert push.cursor == max(e.id for e in await platform.entities("refined"))
+
+
+async def test_add_that_created_nothing_is_retried_next_cycle_once() -> None:
+    misp = FakeMisp()
+    misp.fail_next("add", REPORT, MispUnavailable("Connection refused"))
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+
+    with pytest.raises(MispUnavailable):
+        push.run_once()
+
+    assert push.cursor == 0
+    assert push.run_once() == 1
+    assert misp.writes == [("add", REPORT)]
+
+
+async def test_add_that_ran_into_another_organisations_event_leaves_it_alone() -> None:
+    """The event appeared between STIXHub's check and its add."""
+    misp = FakeMisp()
+    misp.seed(small_event(REPORT, "Theirs", T0), org=THEIR_ORG)
+    misp.hide_once(REPORT)
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+
+    assert push.run_once() == 0
+
+    assert misp.writes == []
+    assert misp.events[REPORT]["info"] == "Theirs"
+    found = await _record(platform)
+    assert found is not None and found.origin is MispEventOrigin.misp
 
 
 async def test_update_whose_responses_got_lost_stays_stixhubs() -> None:

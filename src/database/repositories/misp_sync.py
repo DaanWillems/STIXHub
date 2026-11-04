@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.domain import MispEventOrigin, MispEventSync
@@ -93,16 +94,32 @@ class DatabaseMispSyncRepository(MispSyncRepository):
         return {uuid: _from_model(model) for uuid, model in models.items()}
 
     async def upsert(self, record: MispEventSync) -> MispEventSync:
-        models = await self._get_models(record.instance, [record.event_uuid])
-        model = models.get(record.event_uuid)
-        _check_transfer(None if model is None else _from_model(model), record)
-        if model is None:
-            model = MispEventSyncModel(
-                instance=record.instance, event_uuid=record.event_uuid
+        # One statement, so connectors writing the same record at once can't
+        # collide on the insert or slip past the ownership check.
+        values = {
+            "instance": record.instance,
+            "event_uuid": record.event_uuid,
+            "origin": record.origin.value,
+            "misp_timestamp": record.misp_timestamp,
+            "creator_org": record.creator_org,
+        }
+        insert = pg_insert(MispEventSyncModel).values(**values)
+        moves_back_to_stixhub = (MispEventSyncModel.origin == MispEventOrigin.misp) & (
+            insert.excluded.origin == MispEventOrigin.stixhub
+        )
+        statement = insert.on_conflict_do_update(
+            index_elements=["instance", "event_uuid"],
+            set_={**values, "updated_at": func.now()},
+            where=~moves_back_to_stixhub,
+        ).returning(MispEventSyncModel)
+        # Refresh a copy of the row this session may have loaded before.
+        result = await self._session.execute(
+            statement, execution_options={"populate_existing": True}
+        )
+        model = result.scalar_one_or_none()
+        if model is None:  # the update was refused by the where clause
+            raise OwnershipError(
+                f"MISP event {record.event_uuid} is owned by MISP; "
+                "ownership never moves back to STIXHub"
             )
-            self._session.add(model)
-        model.origin = record.origin.value
-        model.misp_timestamp = record.misp_timestamp
-        model.creator_org = record.creator_org
-        await self._session.flush()
         return _from_model(model)

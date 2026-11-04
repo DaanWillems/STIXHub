@@ -53,7 +53,7 @@ async def get_collector_repo() -> AsyncGenerator[CollectorRepository, None]:
             yield DatabaseCollectorRepository(session)
 
 
-async def get_misp_sync_repo() -> AsyncGenerator[MispSyncRepository, None]:
+async def get_misp_sync_repo() -> AsyncGenerator[MispSyncRepository]:
     if settings.BUCKET_REPO_BACKEND == "memory":
         yield _in_memory_misp_sync_repo
     else:

@@ -12,6 +12,7 @@ async def test_upsert_creates_then_updates(session: AsyncSession) -> None:
     repo = DatabaseMispSyncRepository(session)
 
     await repo.upsert(MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub))
+    assert (await repo.get_many(INSTANCE, [EVENT]))[EVENT].misp_timestamp is None
     await repo.upsert(
         MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub, 1790000000, "1")
     )

@@ -63,15 +63,6 @@ async def _find_bucket(repo: BucketRepository, bucket_name: str) -> Bucket | Non
     return bucket
 
 
-async def _get_collector(repo: CollectorRepository, collector_id: int) -> Collector:
-    collector = await repo.get(collector_id)
-    if collector is None:
-        raise HTTPException(
-            status_code=404, detail=f"Collector {collector_id} not found"
-        )
-    return collector
-
-
 def _presented(credentials: CredentialsDep) -> str | None:
     return None if credentials is None else credentials.credentials
 
@@ -85,9 +76,14 @@ async def _authorized(
     bucket_repo: BucketRepository,
 ) -> Collector:
     """The collector, if the caller holds its secret and its grant allows
-    ``access`` (any access when ``None``) to the bucket it registered for."""
-    collector = await _get_collector(collector_repo, collector_id)
+    ``access`` (any access when ``None``) to the bucket it registered for.
+
+    An unknown id fails like a wrong secret, so ids can't be probed.
+    """
+    collector = await collector_repo.get(collector_id)
     try:
+        if collector is None:
+            raise CollectorAuthError(401, "Invalid collector credentials")
         grant = auth.authenticate(collector.name, _presented(credentials))
     except CollectorAuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

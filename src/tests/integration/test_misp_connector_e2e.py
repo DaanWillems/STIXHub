@@ -8,8 +8,8 @@ from typing import Any
 
 from models.domain import MispEventOrigin
 from tests.misp_support import (
-    INSTANCE,
     EVENT_UUID,
+    INSTANCE,
     FakeMisp,
     connector_config,
     fixture_event,

@@ -99,12 +99,12 @@ async def test_submit_objects_stores_in_bucket_and_reports_failures() -> None:
     assert entity.other_stix_ids == [INDICATOR["id"]]
 
 
-async def test_unknown_collector_returns_404() -> None:
+async def test_unknown_collector_id_is_rejected_like_a_wrong_secret() -> None:
     client = (await _platform()).client
     resp = client.put(
         "/collectors/99/cursor", json={"cursor": "x"}, headers=_auth("feed")
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 401
 
 
 # --- reading -----------------------------------------------------------------
