@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from collectors.misp.client import MispRequestError
 from collectors.misp.pusher import MispPusher
 from models.domain import MispEventOrigin, MispEventSync
 from tests.misp_support import (
@@ -75,6 +76,20 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _report(uuid: str, indicator: str, ip: str) -> list[dict[str, Any]]:
+    """A report with a single indicator."""
+    return [
+        _sdo(
+            "report",
+            uuid,
+            name=f"Report {uuid[:4]}",
+            published=CREATED,
+            object_refs=[f"indicator--{indicator}"],
+        ),
+        _indicator(indicator, ip),
+    ]
+
+
 async def _push(
     misp: FakeMisp, clock: Callable[[], datetime] = lambda: NOW, **push: object
 ) -> tuple[MispPusher, Platform]:
@@ -110,6 +125,36 @@ async def test_report_becomes_event_with_what_it_references() -> None:
         INSTANCE, REPORT, MispEventOrigin.stixhub, int(event["timestamp"])
     )
     assert push.run_once() == 0
+
+
+SECOND = "66666666-6666-4666-8666-666666666666"
+
+
+async def test_refused_report_is_skipped_and_later_ones_are_still_pushed() -> None:
+    misp = FakeMisp()
+    misp.fail_next("add", REPORT, MispRequestError(403, "Not allowed"))
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+    await platform.ingest("refined", _report(SECOND, LOOSE, "203.0.113.1"), "feed")
+
+    assert push.run_once() == 1
+
+    assert set(misp.events) == {SECOND}
+    assert push.cursor == max(e.id for e in await platform.entities("refined"))
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_failing_read_ends_the_step_and_keeps_the_cursor(status: int) -> None:
+    misp = FakeMisp()
+    misp.fail_next("get", REPORT, MispRequestError(status, "Denied"))
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+
+    with pytest.raises(MispRequestError):
+        push.run_once()
+
+    assert push.cursor == 0
+    assert push.run_once() == 1
 
 
 async def test_every_page_of_the_bucket_is_read() -> None:

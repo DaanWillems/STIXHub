@@ -154,16 +154,7 @@ class MispPusher:
             for container in sorted(newest.values(), key=lambda e: e.id):
                 if self._stop.is_set():
                     raise CollectorStopped
-                try:
-                    outcome = self._push_container(collector_id, container)
-                except MispRequestError as exc:
-                    logger.error(
-                        "[%s] MISP refused %s: %s",
-                        self._name,
-                        original_id(container),
-                        exc,
-                    )
-                    outcome = _Outcome.SKIPPED
+                outcome = self._push_container(collector_id, container)
                 if outcome is _Outcome.DEFERRED:
                     # Resume at this container next cycle; nothing after it
                     # is pushed before it.
@@ -289,6 +280,11 @@ class MispPusher:
                 if published is not None:
                     self._record(event_uuid, event_timestamp(published))
         except MispRequestError as exc:
+            # MISP refused to write this event (invalid, not allowed for this
+            # event, ...): skip it. Without valid credentials it would refuse
+            # every event, so that ends the step instead, cursor held.
+            if exc.status_code == 401:
+                raise
             logger.error("[%s] MISP refused event %s: %s", self._name, event_uuid, exc)
             return _Outcome.SKIPPED
         return _Outcome.WRITTEN

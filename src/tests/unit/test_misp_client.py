@@ -109,9 +109,11 @@ def test_add_returns_the_new_timestamp() -> None:
         requests.ConnectionError("refused"),
         requests.Timeout("slow"),
         MISPServerError("Error code 500"),
+        {"errors": (429, {"message": "Too many requests"})},
+        {"errors": (408, {"message": "Request timeout"})},
     ],
 )
-def test_unreachable_or_failing_misp_is_transient(failure: Exception) -> None:
+def test_unreachable_failing_or_busy_misp_is_transient(failure: Any) -> None:
     client, _ = _client(failure)
     with pytest.raises(MispUnavailable) as raised:
         client.get_event("e1")

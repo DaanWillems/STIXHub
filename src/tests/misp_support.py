@@ -83,6 +83,16 @@ class FakeMisp:
     lose_next_add_response: bool = False
     index_filters: list[dict[str, Any]] = field(default_factory=list)
     writes: list[tuple[str, str]] = field(default_factory=list)
+    # Errors to raise once from the next "get" / "add" / "update" of an event.
+    failures: dict[tuple[str, str], Exception] = field(default_factory=dict)
+
+    def fail_next(self, operation: str, uuid: str, error: Exception) -> None:
+        self.failures[(operation, uuid)] = error
+
+    def _maybe_fail(self, operation: str, uuid: str) -> None:
+        error = self.failures.pop((operation, uuid), None)
+        if error is not None:
+            raise error
 
     def _tick(self) -> int:
         self.clock += 1
@@ -142,10 +152,12 @@ class FakeMisp:
         )
 
     def get_event(self, uuid: str) -> dict[str, Any] | None:
+        self._maybe_fail("get", uuid)
         event = self.events.get(uuid)
         return copy.deepcopy(event) if event is not None else None
 
     def add_event(self, event: dict[str, Any]) -> int:
+        self._maybe_fail("add", event["uuid"])
         if event["uuid"] in self.events:
             raise MispRequestError(403, "An event with this UUID already exists")
         self.writes.append(("add", event["uuid"]))
@@ -161,6 +173,7 @@ class FakeMisp:
         return timestamp
 
     def update_event(self, uuid: str, event: dict[str, Any]) -> int:
+        self._maybe_fail("update", uuid)
         if uuid not in self.events:
             raise MispRequestError(404, "Invalid event")
         self.writes.append(("update", uuid))

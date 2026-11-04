@@ -22,6 +22,10 @@ class MispUnavailable(TransientError):
     """MISP could not be reached or failed server-side (worth retrying)."""
 
 
+# 4xx statuses that mean "not now" rather than "no": timeout, rate limit.
+_RETRYABLE_STATUSES = frozenset({408, 429})
+
+
 class MispRequestError(Exception):
     """MISP rejected a request (HTTP 4xx); retrying won't help."""
 
@@ -144,7 +148,10 @@ class PyMispClient:
         if isinstance(result, dict) and "errors" in result:
             errors = result["errors"]
             if isinstance(errors, (tuple, list)) and len(errors) == 2:
-                raise MispRequestError(int(errors[0]), errors[1])
+                status = int(errors[0])
+                if status in _RETRYABLE_STATUSES:
+                    raise MispUnavailable(f"{description}: HTTP {status}")
+                raise MispRequestError(status, errors[1])
             raise MispUnavailable(f"{description}: {errors}")
         return result
 
