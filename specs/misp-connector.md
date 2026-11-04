@@ -85,7 +85,6 @@ collectors:
       sharing_group_id: null        # required when distribution is 4
       publish: false                # publish events after create/update; default false
       batch_size: 100               # entities read per request (1-1000); default 100
-      settle_seconds: 10            # only read entities at least this old; default 10
       wait_for_refs_seconds: 120    # how long a report waits for its objects; default 120
 ```
 
@@ -145,7 +144,8 @@ every call (`collector_auth.py`):
   | MISP connector `<name>` (pull) | `pull.target_bucket` | write |
   | MISP connector `<name>:push` | `push.source_bucket` | read (list, look up) |
 
-- A request without the right secret gets **401**. Registering for another bucket, reading
+- A request without the right secret, or for a registration id that doesn't exist, gets
+  **401** (so ids can't be probed). Registering for another bucket, reading
   with a write grant or writing with a read grant gets **403**. A registration whose
   bucket no longer matches the config (the config changed) gets 403 until it registers
   again.
@@ -192,19 +192,27 @@ registration error.
    - otherwise: `timestamp` (last modified), and every event.
 
    Follow pages of `page_size` rows until a page comes back short. Sort the rows by
-   `(position, uuid)` locally as well.
-2. **Cursor.** The cursor is JSON: `{"timestamp": <position>, "uuids": [<event uuids>]}`.
+   `(position, uuid)` locally as well. (Known limitation: if an event already listed is
+   edited or republished while the pages are being read, it moves to the end of the index
+   and the next page's first row can be missed.)
+2. **Cursor.** The cursor is JSON:
+   `{"field": "publish_timestamp" | "timestamp", "position": <unix seconds>, "uuids": [...]}`.
    `uuids` lists the events already ingested at exactly that position. MISP's filters are
    inclusive with one-second resolution, so rows at the cursor position whose UUID is in
    `uuids` are skipped. A new connector (no cursor) starts at
-   `now - initial_lookback_days`.
+   `now - initial_lookback_days`. When `published_only` is switched, the stored `field`
+   no longer matches and pull starts over from `now - initial_lookback_days` (with a
+   warning), since the stored position would mean something else.
 3. **Echo check.** Look up the event's sync record (see [Sync records](#sync-records)). The
    check always compares the modification `timestamp`:
    - origin `stixhub`, same `timestamp` as recorded: STIXHub's own push coming back. Skip
      it, but still advance the cursor past it.
-   - origin `stixhub`, no timestamp yet (pending: an add whose outcome was never
-     recorded): if STIXHub's organisation created the event in MISP, it is that push;
-     record its timestamp and skip it. Otherwise ingest it (MISP owns it).
+   - origin `stixhub`, no timestamp yet (pending: a write whose outcome was never
+     recorded): if the record's `creator_org` (the organisation STIXHub pushes as; this
+     connector's own if the record has none) created the event in MISP, it is that push:
+     record its timestamp and skip it. Otherwise ingest it (MISP owns it). Using the
+     record's organisation matters when this connector's key belongs to another
+     organisation than the pushing connector's, e.g. a read-only pull key.
    - origin `stixhub`, different `timestamp`: a MISP user edited it. Ingest it like any
      other event; step 6 makes MISP its owner.
    - no record, or origin `misp`: ingest it.
@@ -232,12 +240,13 @@ registration error.
 
 ### Push
 
-1. **Read new entities.** Page through
-   `GET /collectors/{push_id}/entities?after=<cursor>&settled_for=<settle_seconds>` in
-   `batch_size` steps. A page ends before the first entity younger than `settle_seconds`:
-   entity ids are assigned before commit, so a younger row may still have an older
-   neighbour being committed, and the cursor must not pass it. (A transaction that takes
-   longer than `settle_seconds` can still be skipped.)
+1. **Read new entities.** Page through `GET /collectors/{push_id}/entities?after=<cursor>`
+   in `batch_size` steps. Entity ids are assigned before commit, so a row can become
+   visible after rows with higher ids, and a cursor that passes it would skip it for
+   good. Each row therefore carries `inserted_at`, the database clock when it was written
+   (`clock_timestamp()`, not the transaction start), and a page stops before the first
+   row inserted after the oldest other transaction that may still write (from
+   `pg_stat_activity`) started: only such a transaction can still hold a lower id.
 2. **Filter.** Skip entities whose `creator` is in the excluded set:
    - `collector:<name>` (this connector's pull)
    - `collector:<other>` for every other MISP connector with the same `url` (normalised: no
@@ -286,7 +295,7 @@ registration error.
    |---|---|---|
    | none | absent | Add (see below). |
    | none | present | Somebody else owns it. Skip and log. |
-   | origin `stixhub`, pending | present, created by STIXHub's organisation | A previous add reached MISP but wasn't recorded. Adopt it: record its `timestamp`, then `update_event`. |
+   | origin `stixhub`, pending | present, created by the record's `creator_org` | A previous write reached MISP but wasn't recorded. Adopt it: record its `timestamp`, then `update_event`. |
    | origin `stixhub`, pending | present, created by another organisation | Not STIXHub's. Set origin `misp`, skip. |
    | origin `stixhub`, pending | absent | Add again. |
    | origin `stixhub`, `timestamp` = MISP's | present | `update_event`, record the returned `timestamp`. |
@@ -294,13 +303,19 @@ registration error.
    | origin `stixhub` | absent (deleted in MISP) | Skip and log. Deletions aren't propagated. |
    | origin `misp` | any | MISP owns it. Skip. |
 
-   **Adding** writes a pending record (origin `stixhub`, no timestamp) first, then calls
-   `add_event` **once**: adding isn't idempotent, so it is never retried blindly. If it
-   fails, push reads the event back:
+   Every write is preceded by a **pending** record (origin `stixhub`, no timestamp,
+   `creator_org` = the organisation STIXHub pushes as: the record's, or the API key's
+   `org_id` for a new event), and followed by recording the new timestamp. If MISP applies
+   a write but STIXHub never hears back (crash, lost response, retries exhausted), the
+   pending record makes the next cycle adopt the event instead of taking the unknown
+   timestamp for an edit in MISP.
+
+   **Adding** calls `add_event` **once**: adding isn't idempotent, so it is never retried
+   blindly. If it fails, push reads the event back:
    - absent: nothing was created. A transient failure ends the step (retried next cycle,
      the record stays pending); a refusal skips the container.
-   - present and created by STIXHub's organisation (the API user's `org_id`): the add
-     worked but its response was lost. Adopt it.
+   - present and created by `creator_org`: the add worked but its response was lost.
+     Adopt it.
    - present and created by another organisation: set origin `misp` and skip.
 
    If `publish` is set, publish the event after a successful add or update, then record
@@ -309,7 +324,10 @@ registration error.
 8. **Advance the cursor** to the highest entity `id` of the batch once every container in
    it has been handled (pushed, skipped, or failed permanently), or to just before a
    deferred container. A transient MISP failure leaves the cursor where it is, so the
-   batch is retried next cycle; a 4xx on one container skips that container only.
+   batch is retried next cycle. MISP refusing to **write** one container (a 4xx other
+   than 401 on add, update or publish) skips that container only. A 4xx on a read, or a
+   401 anywhere, would hit every container alike (a revoked key, a lost permission), so
+   it ends the step with the cursor held instead.
 9. A newer version of a container (a new entity row with a higher `id`) is pushed again as
    an update, subject to the table above.
 
@@ -326,11 +344,13 @@ echo each other's events.
 | `instance` | str | the MISP instance's normalised URL |
 | `event_uuid` | str | MISP event UUID |
 | `origin` | enum `misp` \| `stixhub` | who owns the event |
-| `misp_timestamp` | int, nullable | the event's MISP `timestamp` at the last sync; null while an add is pending |
+| `misp_timestamp` | int, nullable | the event's MISP `timestamp` at the last sync; null while a write is pending |
+| `creator_org` | str, nullable | the MISP organisation STIXHub creates the event as |
 | `updated_at` | timestamptz | |
 
 `(instance, event_uuid)` is unique. Ownership only ever moves from `stixhub` to `misp`,
-never back.
+never back. Records are written with one `INSERT … ON CONFLICT DO UPDATE` whose `WHERE`
+enforces that rule, so connectors sharing an instance can't race each other.
 
 ### Error handling
 
@@ -339,11 +359,13 @@ never back.
   contacts MISP when it's constructed, so the client creates it lazily on the connector
   thread, where a failure is retried like any other.
 - **Transient** (retried with the existing exponential back-off): connection errors,
-  timeouts, HTTP 5xx. They surface as `MispUnavailable`, a `retry.TransientError`.
-- **Permanent** (logged, the step ends until the next cycle): HTTP 4xx, for example a
-  missing permission. A 4xx on one event during push skips that event instead. PyMISP
-  reports a rejected API key the same way as an unreachable server when it connects, so
-  that is retried as transient.
+  timeouts, HTTP 5xx, and HTTP 408 / 429 (timeout, rate limit). They surface as
+  `MispUnavailable`, a `retry.TransientError`.
+- **Permanent** (logged, the step ends until the next cycle with its cursor held): other
+  HTTP 4xx, for example a missing permission. Only MISP refusing to write one event
+  during push skips that event instead (see Push, step 8). PyMISP reports a rejected API
+  key the same way as an unreachable server when it connects, so that is retried as
+  transient.
 - After `max_retries`, the step logs an error and the connector waits for the next cycle.
 
 ## Platform Changes
@@ -431,8 +453,11 @@ existing databases are dropped and recreated after upgrading.
 - New table for sync records (see above).
 - `stix_entity_model.type` is declared as `String(128)` instead of `String(30)`, for custom
   type names.
+- `stix_entity_model.inserted_at` (timestamptz, default `clock_timestamp()`): when the row
+  was written, for readers that keep a cursor on `id`.
 - New `BucketRepository` methods, in both the database and in-memory implementations:
-  - `get_entities_after(bucket_id, after_id, limit)`: entities with `id > after_id`, by `id`.
+  - `get_entities_after(bucket_id, after_id, limit)`: entities with `id > after_id`, by `id`,
+    up to the first row a running transaction may still precede (see Push, step 1).
   - `find_latest_by_refs(bucket_id, refs)`: like `find_by_refs`, but across all types (the
     type is taken from the ref's prefix) and the **newest** match wins.
 - New `MispSyncRepository` (database and in-memory) for sync records.
@@ -445,7 +470,7 @@ secret, and each is limited by the registration's grant (see
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| GET | `/collectors/{id}/entities?after=<int>&limit=<int>&settled_for=<s>` | read | Entities of the collector's bucket after an entity `id`, oldest first, up to the first one younger than `settled_for` seconds, with `id`, `stix_id`, `other_stix_ids`, `creator`, `type`, `platform_created` and `object` |
+| GET | `/collectors/{id}/entities?after=<int>&limit=<int>` | read | Entities of the collector's bucket after an entity `id`, oldest first, up to the first one a running transaction may still precede (see Push, step 1), with `id`, `stix_id`, `other_stix_ids`, `creator`, `type`, `platform_created` and `object` |
 | POST | `/collectors/{id}/entities/lookup` | read | Body `{"refs": [...]}`; newest entity per ref in the collector's bucket (ref = platform ID or original ID) |
 | POST | `/misp-sync/{connector}/events/lookup` | MISP connector | Body `{"event_uuids": [...]}`; the sync records of the connector's MISP instance for those events |
 | PUT | `/misp-sync/{connector}/events/{event_uuid}` | MISP connector | Create or update a sync record (`origin`, `misp_timestamp`) of the connector's instance |
@@ -522,6 +547,7 @@ deliberate change, checked by the round-trip tests.
       neither skipped nor ingested twice.
 - [x] An edited event is ingested again, and its report keeps its platform ID.
 - [x] With `published_only`, an event published after newer events is still pulled.
+- [x] Switching `published_only` restarts pulling from the lookback window.
 - [x] `published_only`, `tags` and `orgs` filters are applied.
 - [x] An event that fails to convert is logged and skipped; the cycle continues.
 - [x] An event STIXHub pushed is not pulled back unless it was edited in MISP afterwards,
@@ -541,12 +567,13 @@ deliberate change, checked by the round-trip tests.
 - [x] Events STIXHub didn't create are never modified.
 - [x] An event STIXHub created and a MISP user edited afterwards becomes MISP-owned and is
       not updated again.
-- [x] A crash between `add_event` and recording its timestamp, or a lost `add_event`
-      response, doesn't create a duplicate, lose ownership or take over another
-      organisation's event.
+- [x] A crash between a write (add, update, publish) and recording its timestamp, or a
+      lost response, doesn't create a duplicate, lose ownership or take over another
+      organisation's event, whichever connector of the instance notices it first.
 - [x] A report whose objects are still on their way waits for them (up to
-      `wait_for_refs_seconds`), and the cursor never passes an entity younger than
-      `settle_seconds`.
+      `wait_for_refs_seconds`), and the cursor never passes an entity that a running
+      transaction may still precede.
+- [x] A rate limit, a revoked key or a failing read never marks a report as handled.
 - [x] `distribution`, `sharing_group_id` and `publish` are applied.
 
 ### Operation
