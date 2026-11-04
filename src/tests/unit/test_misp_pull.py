@@ -141,6 +141,22 @@ async def test_unrecorded_push_is_adopted_only_if_ours(org: str, pulled: int) ->
     )
 
 
+async def test_unrecorded_push_is_judged_by_the_organisation_that_pushed() -> None:
+    """A pull-only connector may use another organisation's (read-only) key."""
+    misp = FakeMisp()
+    misp.seed(small_event(EVENT_UUID, "Pushed", T0), org=OUR_ORG)
+    pull, platform = await _pull(misp.with_key_of(THEIR_ORG))
+    pending = MispEventSync(
+        INSTANCE, EVENT_UUID, MispEventOrigin.stixhub, None, OUR_ORG
+    )
+    await platform.sync.upsert(pending)
+
+    assert pull.run_once() == 0
+
+    record = (await platform.sync.get_many(INSTANCE, [EVENT_UUID]))[EVENT_UUID]
+    assert record.origin is MispEventOrigin.stixhub
+
+
 async def test_unconvertible_event_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
     misp = FakeMisp()
     misp.seed(small_event(EVENT_UUID, "Broken", T0))

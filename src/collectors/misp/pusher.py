@@ -239,10 +239,15 @@ class MispPusher:
         record = records.get(event_uuid)
         if record is not None and record.origin is MispEventOrigin.misp:
             return _Outcome.SKIPPED
+        # STIXHub's events are created by the organisation of the key that
+        # added them; a record remembers it for the connectors that come later.
+        creator = (record.creator_org if record else None) or self._retry(
+            self._misp.own_org_id, "get own organisation"
+        )
         remote = self._retry(
             lambda: self._misp.get_event(event_uuid), f"get event {event_uuid}"
         )
-        if not self._may_write(record, remote, event_uuid):
+        if not self._may_write(record, remote, event_uuid, creator):
             return _Outcome.SKIPPED
 
         try:
@@ -258,16 +263,20 @@ class MispPusher:
 
         try:
             if remote is None:
-                timestamp = self._add(event_uuid, event)
+                timestamp = self._add(event_uuid, event, creator)
                 if timestamp is None:
                     return _Outcome.SKIPPED
             else:
+                # Pending again: if the update's response gets lost, the new
+                # timestamp is adopted rather than taken for an edit in MISP.
+                self._record(event_uuid, None, creator)
                 timestamp = self._retry(
                     lambda: self._misp.update_event(event_uuid, event),
                     f"update event {event_uuid}",
                 )
-            self._record(event_uuid, timestamp)
+            self._record(event_uuid, timestamp, creator)
             if self._push.publish:
+                self._record(event_uuid, None, creator)
                 self._retry(
                     lambda: self._misp.publish_event(event_uuid),
                     f"publish event {event_uuid}",
@@ -278,7 +287,7 @@ class MispPusher:
                     lambda: self._misp.get_event(event_uuid), f"get event {event_uuid}"
                 )
                 if published is not None:
-                    self._record(event_uuid, event_timestamp(published))
+                    self._record(event_uuid, event_timestamp(published), creator)
         except MispRequestError as exc:
             # MISP refused to write this event (invalid, not allowed for this
             # event, ...): skip it. Without valid credentials it would refuse
@@ -289,13 +298,13 @@ class MispPusher:
             return _Outcome.SKIPPED
         return _Outcome.WRITTEN
 
-    def _add(self, event_uuid: str, event: dict[str, Any]) -> int | None:
+    def _add(self, event_uuid: str, event: dict[str, Any], creator: str) -> int | None:
         """Create the event; its timestamp, or ``None`` if STIXHub doesn't own it.
 
         Adding isn't idempotent, so it is never retried blindly: after a
         failure, whether MISP created the event decides what happens next.
         """
-        self._record(event_uuid, None)  # pending: survives a crash mid-add
+        self._record(event_uuid, None, creator)  # pending: survives a crash mid-add
         try:
             return self._misp.add_event(event)
         except (MispUnavailable, MispRequestError) as exc:
@@ -307,7 +316,7 @@ class MispPusher:
             # Nothing was created: a transient failure is retried next cycle,
             # a refusal is final.
             raise failure
-        if self._is_ours(remote):
+        if created_by(remote, creator):
             logger.info(
                 "[%s] adding event %s failed (%s) but MISP created it; adopting it",
                 self._name,
@@ -315,19 +324,16 @@ class MispPusher:
                 failure,
             )
             return event_timestamp(remote)
-        self._hand_to_misp(event_uuid, event_timestamp(remote))
-        return None
-
-    def _is_ours(self, event: dict[str, Any]) -> bool:
-        org_id = self._retry(self._misp.own_org_id, "get own organisation")
-        return created_by(event, org_id)
-
-    def _hand_to_misp(self, event_uuid: str, timestamp: int) -> None:
         logger.warning(
-            "[%s] event %s belongs to someone else in MISP; STIXHub won't write it",
+            "[%s] event %s already exists under another organisation; "
+            "STIXHub won't write it",
             self._name,
             event_uuid,
         )
+        self._hand_to_misp(event_uuid, event_timestamp(remote))
+        return None
+
+    def _hand_to_misp(self, event_uuid: str, timestamp: int) -> None:
         self._retry(
             lambda: self._platform.put_misp_event(
                 self._name, event_uuid, MispEventOrigin.misp, timestamp
@@ -340,6 +346,7 @@ class MispPusher:
         record: MispEventRecord | None,
         remote: dict[str, Any] | None,
         event_uuid: str,
+        creator: str,
     ) -> bool:
         """Apply the ownership rules (see specs/misp-connector.md, Push)."""
         if record is None:
@@ -363,12 +370,18 @@ class MispPusher:
             return False
         remote_timestamp = event_timestamp(remote)
         if record.misp_timestamp is None:
-            # An earlier add may have reached MISP without being recorded:
+            # An earlier write may have reached MISP without being recorded:
             # adopt the event if STIXHub's organisation created it.
-            if not self._is_ours(remote):
+            if not created_by(remote, creator):
+                logger.warning(
+                    "[%s] event %s belongs to another organisation in MISP; "
+                    "STIXHub won't write it",
+                    self._name,
+                    event_uuid,
+                )
                 self._hand_to_misp(event_uuid, remote_timestamp)
                 return False
-            self._record(event_uuid, remote_timestamp)
+            self._record(event_uuid, remote_timestamp, creator)
             return True
         if record.misp_timestamp != remote_timestamp:
             logger.warning(
@@ -377,19 +390,14 @@ class MispPusher:
                 self._name,
                 event_uuid,
             )
-            self._retry(
-                lambda: self._platform.put_misp_event(
-                    self._name, event_uuid, MispEventOrigin.misp, remote_timestamp
-                ),
-                f"hand event {event_uuid} to MISP",
-            )
+            self._hand_to_misp(event_uuid, remote_timestamp)
             return False
         return True
 
-    def _record(self, event_uuid: str, timestamp: int | None) -> None:
+    def _record(self, event_uuid: str, timestamp: int | None, creator: str) -> None:
         self._retry(
             lambda: self._platform.put_misp_event(
-                self._name, event_uuid, MispEventOrigin.stixhub, timestamp
+                self._name, event_uuid, MispEventOrigin.stixhub, timestamp, creator
             ),
             f"record event {event_uuid}",
         )

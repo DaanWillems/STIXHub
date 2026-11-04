@@ -206,6 +206,7 @@ class MispEventSyncModel(Base):
         nullable=False,
     )
     misp_timestamp: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    creator_org: Mapped[Optional[str]] = mapped_column(nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

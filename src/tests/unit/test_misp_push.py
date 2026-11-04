@@ -6,6 +6,7 @@ import pytest
 
 from collectors.misp.client import MispRequestError
 from collectors.misp.pusher import MispPusher
+from collectors.retry import RetriesExhausted
 from models.domain import MispEventOrigin, MispEventSync
 from tests.misp_support import (
     EVENT_UUID,
@@ -122,7 +123,7 @@ async def test_report_becomes_event_with_what_it_references() -> None:
     # The loose indicator is not part of any report, so it isn't pushed.
     assert all_uuids(event) == {INDICATOR}
     assert await _record(platform) == MispEventSync(
-        INSTANCE, REPORT, MispEventOrigin.stixhub, int(event["timestamp"])
+        INSTANCE, REPORT, MispEventOrigin.stixhub, int(event["timestamp"]), OUR_ORG
     )
     assert push.run_once() == 0
 
@@ -297,7 +298,8 @@ async def test_ownership_rules(
 
 
 async def test_add_whose_response_got_lost_is_adopted_not_repeated() -> None:
-    misp = FakeMisp(lose_next_add_response=True)
+    misp = FakeMisp()
+    misp.lose_responses("add", REPORT)
     push, platform = await _push(misp)
     await platform.ingest("refined", _feed(), creator="feed")
 
@@ -305,5 +307,23 @@ async def test_add_whose_response_got_lost_is_adopted_not_repeated() -> None:
 
     assert misp.writes == [("add", REPORT)]
     assert await _record(platform) == MispEventSync(
-        INSTANCE, REPORT, STIXHUB, int(misp.events[REPORT]["timestamp"])
+        INSTANCE, REPORT, STIXHUB, int(misp.events[REPORT]["timestamp"]), OUR_ORG
+    )
+
+
+async def test_update_whose_responses_got_lost_stays_stixhubs() -> None:
+    """MISP applied the update, but STIXHub never learnt its new timestamp."""
+    misp = FakeMisp()
+    push, platform = await _push(misp)
+    await platform.ingest("refined", _feed(), creator="feed")
+    push.run_once()
+    await platform.ingest("refined", _feed("Renamed report"), creator="feed")
+    misp.lose_responses("update", REPORT, times=3)  # every retry of one cycle
+
+    with pytest.raises(RetriesExhausted):
+        push.run_once()
+
+    assert push.run_once() == 1
+    assert await _record(platform) == MispEventSync(
+        INSTANCE, REPORT, STIXHUB, int(misp.events[REPORT]["timestamp"]), OUR_ORG
     )

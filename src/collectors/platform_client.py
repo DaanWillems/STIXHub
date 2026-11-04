@@ -96,10 +96,15 @@ class PlatformClient:
         event_uuid: str,
         origin: MispEventOrigin,
         misp_timestamp: int | None,
+        creator_org: str | None = None,
     ) -> None:
         response = self._http.put(
             f"{self._base_url}/misp-sync/{connector}/events/{event_uuid}",
             headers=self._headers,
-            json={"origin": origin.value, "misp_timestamp": misp_timestamp},
+            json={
+                "origin": origin.value,
+                "misp_timestamp": misp_timestamp,
+                "creator_org": creator_org,
+            },
         )
         response.raise_for_status()

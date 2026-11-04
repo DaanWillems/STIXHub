@@ -232,13 +232,17 @@ class MispEventSync:
     instance: str  # the instance's normalised URL
     event_uuid: str
     origin: MispEventOrigin
-    # The event's MISP timestamp at the last sync; None while an add is pending.
+    # The event's MISP timestamp at the last sync; None while a write is pending.
     misp_timestamp: int | None = None
+    # The MISP organisation STIXHub creates the event as (its API key's), so
+    # any connector can tell a pending write of STIXHub's from someone else's.
+    creator_org: str | None = None
 
 
 class MispEventSyncUpdate(BaseModel):
     origin: MispEventOrigin
     misp_timestamp: int | None = None
+    creator_org: str | None = None
 
 
 class MispEventRecord(BaseModel):
@@ -247,6 +251,7 @@ class MispEventRecord(BaseModel):
     event_uuid: str
     origin: MispEventOrigin
     misp_timestamp: int | None = None
+    creator_org: str | None = None
 
 
 class MispEventSyncLookup(BaseModel):

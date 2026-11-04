@@ -29,6 +29,7 @@ def _from_model(model: MispEventSyncModel) -> MispEventSync:
         event_uuid=model.event_uuid,
         origin=MispEventOrigin(model.origin),
         misp_timestamp=model.misp_timestamp,
+        creator_org=model.creator_org,
     )
 
 
@@ -102,5 +103,6 @@ class DatabaseMispSyncRepository(MispSyncRepository):
             self._session.add(model)
         model.origin = record.origin.value
         model.misp_timestamp = record.misp_timestamp
+        model.creator_org = record.creator_org
         await self._session.flush()
         return _from_model(model)

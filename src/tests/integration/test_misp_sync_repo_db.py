@@ -13,11 +13,11 @@ async def test_upsert_creates_then_updates(session: AsyncSession) -> None:
 
     await repo.upsert(MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub))
     await repo.upsert(
-        MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub, 1790000000)
+        MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub, 1790000000, "1")
     )
 
     assert await repo.get_many(INSTANCE, [EVENT, "unknown"]) == {
-        EVENT: MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub, 1790000000)
+        EVENT: MispEventSync(INSTANCE, EVENT, MispEventOrigin.stixhub, 1790000000, "1")
     }
     assert await repo.get_many("https://other.example", [EVENT]) == {}
 

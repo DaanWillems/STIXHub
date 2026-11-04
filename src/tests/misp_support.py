@@ -4,7 +4,7 @@ import copy
 import json
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -79,15 +79,31 @@ class FakeMisp:
 
     events: dict[str, dict[str, Any]] = field(default_factory=dict)
     clock: int = T0
-    # Create the next added event, then fail as if the response got lost.
-    lose_next_add_response: bool = False
+    # The organisation of the API key this view of MISP is used with.
+    own_org: str = OUR_ORG
     index_filters: list[dict[str, Any]] = field(default_factory=list)
     writes: list[tuple[str, str]] = field(default_factory=list)
     # Errors to raise once from the next "get" / "add" / "update" of an event.
     failures: dict[tuple[str, str], Exception] = field(default_factory=dict)
+    # Writes ("add" / "update") to apply but answer as if the response got
+    # lost, and how many times.
+    lost_responses: dict[tuple[str, str], int] = field(default_factory=dict)
 
     def fail_next(self, operation: str, uuid: str, error: Exception) -> None:
         self.failures[(operation, uuid)] = error
+
+    def lose_responses(self, operation: str, uuid: str, times: int = 1) -> None:
+        self.lost_responses[(operation, uuid)] = times
+
+    def _maybe_lose_response(self, operation: str, uuid: str) -> None:
+        left = self.lost_responses.get((operation, uuid), 0)
+        if left:
+            self.lost_responses[(operation, uuid)] = left - 1
+            raise MispUnavailable("Read timed out")
+
+    def with_key_of(self, org: str) -> "FakeMisp":
+        """The same MISP as seen through an API key of organisation ``org``."""
+        return replace(self, own_org=org)
 
     def _maybe_fail(self, operation: str, uuid: str) -> None:
         error = self.failures.pop((operation, uuid), None)
@@ -165,11 +181,9 @@ class FakeMisp:
         self.events[event["uuid"]] = {
             **copy.deepcopy(event),
             "timestamp": str(timestamp),
-            "orgc_id": OUR_ORG,
+            "orgc_id": self.own_org,
         }
-        if self.lose_next_add_response:
-            self.lose_next_add_response = False
-            raise MispUnavailable("Read timed out")
+        self._maybe_lose_response("add", event["uuid"])
         return timestamp
 
     def update_event(self, uuid: str, event: dict[str, Any]) -> int:
@@ -183,10 +197,11 @@ class FakeMisp:
             "timestamp": str(timestamp),
             "orgc_id": self.events[uuid]["orgc_id"],
         }
+        self._maybe_lose_response("update", uuid)
         return timestamp
 
     def own_org_id(self) -> str:
-        return OUR_ORG
+        return self.own_org
 
     def publish_event(self, uuid: str) -> None:
         self.writes.append(("publish", uuid))

@@ -41,6 +41,7 @@ def _to_response(record: MispEventSync) -> MispEventRecord:
         event_uuid=record.event_uuid,
         origin=record.origin,
         misp_timestamp=record.misp_timestamp,
+        creator_org=record.creator_org,
     )
 
 
@@ -73,6 +74,7 @@ async def put_event(
         event_uuid=event_uuid,
         origin=body.origin,
         misp_timestamp=body.misp_timestamp,
+        creator_org=body.creator_org,
     )
     try:
         return _to_response(await repo.upsert(record))

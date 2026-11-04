@@ -168,16 +168,23 @@ class MispPuller:
         if record.misp_timestamp == ref.timestamp:
             return True
         if record.misp_timestamp is None:
-            # A push that never got recorded: the event is STIXHub's if
-            # STIXHub's organisation created it.
+            # A push whose outcome never got recorded: the event is STIXHub's
+            # if the organisation STIXHub pushes as created it (which may not
+            # be this connector's own).
             event = self._retry(
                 lambda: self._misp.get_event(ref.uuid), f"get event {ref.uuid}"
             )
-            org_id = self._retry(self._misp.own_org_id, "get own organisation")
-            if event is not None and created_by(event, org_id):
+            creator = record.creator_org or self._retry(
+                self._misp.own_org_id, "get own organisation"
+            )
+            if event is not None and created_by(event, creator):
                 self._retry(
                     lambda: self._platform.put_misp_event(
-                        self._name, ref.uuid, MispEventOrigin.stixhub, ref.timestamp
+                        self._name,
+                        ref.uuid,
+                        MispEventOrigin.stixhub,
+                        ref.timestamp,
+                        creator,
                     ),
                     f"adopt event {ref.uuid}",
                 )
