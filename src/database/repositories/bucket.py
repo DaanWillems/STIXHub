@@ -1,10 +1,25 @@
+import itertools
 from abc import ABC, abstractmethod
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.models import BucketModel, StixEntityModel
 from models.domain import Bucket, BucketMode, ProcessingStatus, StixEntity
+
+
+# The start of the oldest other transaction that may still insert rows (one
+# that has written, or is running a statement right now), or the current time.
+_OLDEST_RUNNING_WRITER = text(
+    """
+    SELECT coalesce(min(xact_start), clock_timestamp())
+    FROM pg_stat_activity
+    WHERE pid <> pg_backend_pid()
+      AND datname = current_database()
+      AND xact_start IS NOT NULL
+      AND (backend_xid IS NOT NULL OR state = 'active')
+    """
+)
 
 
 def _bucket_from_model(model: BucketModel) -> Bucket:
@@ -91,7 +106,14 @@ class BucketRepository(ABC):
     async def get_entities_after(
         self, bucket_id: int, after_id: int, limit: int
     ) -> list[StixEntity]:
-        """Up to ``limit`` entities of ``bucket_id`` with ``id > after_id``, by ``id``."""
+        """Up to ``limit`` entities of ``bucket_id`` with ``id > after_id``, by ``id``.
+
+        For readers that keep a cursor on ``id``: ids are handed out before
+        commit, so a row may become visible after rows with higher ids. The
+        result therefore stops before the first row that a transaction still
+        running might precede with a lower id; it is safe to move a cursor to
+        the last id returned.
+        """
 
     @abstractmethod
     async def find_latest_by_refs(
@@ -449,6 +471,12 @@ class DatabaseBucketRepository(BucketRepository):
     async def get_entities_after(
         self, bucket_id: int, after_id: int, limit: int
     ) -> list[StixEntity]:
+        # A transaction still running can only hold ids it took after it
+        # started, so rows inserted before the oldest such transaction started
+        # have no lower-id rows left to appear.
+        horizon = (
+            await self._session.execute(_OLDEST_RUNNING_WRITER)
+        ).scalar_one()
         result = await self._session.execute(
             select(StixEntityModel)
             .where(
@@ -458,7 +486,12 @@ class DatabaseBucketRepository(BucketRepository):
             .order_by(StixEntityModel.id)
             .limit(limit)
         )
-        return [_entity_from_model(model) for model in result.scalars().all()]
+        return [
+            _entity_from_model(model)
+            for model in itertools.takewhile(
+                lambda model: model.inserted_at < horizon, result.scalars().all()
+            )
+        ]
 
     async def find_latest_by_refs(
         self, bucket_id: int, refs: list[str]

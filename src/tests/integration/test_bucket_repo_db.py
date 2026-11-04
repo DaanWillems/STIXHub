@@ -422,3 +422,38 @@ async def test_worker_process_batch_writes_sink_and_marks_source(
     assert source_entity.status == ProcessingStatus.processed
     assert source_entity.pipeline is None
     assert source_entity.object["labels"] == []
+
+
+async def test_entities_after_never_pass_a_row_still_being_committed(engine) -> None:
+    """A slow transaction takes a lower id than a fast one but commits later;
+    a reader must not return the fast row (and move its cursor past the slow
+    one) until the slow one has committed."""
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with sessions() as setup, setup.begin():
+        bucket = await DatabaseBucketRepository(setup).save(Bucket(name="in-flight"))
+    assert bucket.id is not None
+
+    async def visible() -> list[str]:
+        async with sessions() as reader, reader.begin():
+            found = await DatabaseBucketRepository(reader).get_entities_after(
+                bucket.id, 0, 10
+            )
+            return [e.stix_id for e in found]
+
+    async with sessions() as slow:
+        await slow.begin()
+        await DatabaseBucketRepository(slow).add_entities(
+            bucket.id, [make_entity(bucket.id, "indicator--slow")]
+        )
+        async with sessions() as fast, fast.begin():
+            await DatabaseBucketRepository(fast).add_entities(
+                bucket.id, [make_entity(bucket.id, "indicator--fast")]
+            )
+
+        assert await visible() == []
+
+        await slow.commit()
+
+    assert await visible() == ["indicator--slow", "indicator--fast"]
+    async with sessions() as cleanup, cleanup.begin():
+        await DatabaseBucketRepository(cleanup).delete(bucket.id)

@@ -219,12 +219,8 @@ def connector_config(**overrides: Any) -> MispConnectorConfig:
     }
     values.update(overrides)
     if isinstance(values["push"], dict):
-        # Push at once; the tests for waiting set these themselves.
-        values["push"] = {
-            "settle_seconds": 0,
-            "wait_for_refs_seconds": 0,
-            **values["push"],
-        }
+        # Push at once; the tests for waiting set it themselves.
+        values["push"] = {"wait_for_refs_seconds": 0, **values["push"]}
     return MispConnectorConfig.model_validate(values)
 
 

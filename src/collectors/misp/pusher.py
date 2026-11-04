@@ -138,7 +138,6 @@ class MispPusher:
                     collector_id,
                     self.cursor,
                     self._push.batch_size,
-                    self._push.settle_seconds,
                 ),
                 "list entities",
             )

@@ -129,9 +129,6 @@ class MispPushConfig(BaseModel):
     publish: bool = False
     # The internal API returns at most 1000 entities per page.
     batch_size: int = Field(default=100, ge=1, le=1000)
-    # Entities younger than this aren't read yet, so the cursor never passes a
-    # row whose transaction is still committing.
-    settle_seconds: float = Field(default=10, ge=0)
     # How long a report waits for objects it references to reach the bucket
     # (e.g. while a pipeline is still copying them) before it is pushed anyway.
     wait_for_refs_seconds: float = Field(default=120, ge=0)

@@ -173,6 +173,11 @@ class StixEntityModel(Base):
     )
     # Name of the last pipeline that wrote this entity; NULL when ingested directly.
     pipeline: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    # When the row was written, by the database's clock (not the transaction
+    # start like now()): readers use it to tell rows they may safely pass.
+    inserted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
 
 
 class CollectorModel(Base):
