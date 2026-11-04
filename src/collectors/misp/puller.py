@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from functools import partial
@@ -14,6 +14,7 @@ from collectors.misp.client import (
     MispEventRef,
     created_by,
     index_position,
+    position_field,
 )
 from collectors.misp.common import Retrier, load_cursor, register
 from collectors.misp.convert import ConversionError, event_to_stix
@@ -31,32 +32,40 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PullCursor:
-    """Where pulling resumes: an index position (see ``index_position``).
+    """Where pulling resumes: a ``position`` on the index ``field`` (see
+    ``index_position``).
 
     MISP's index filters are inclusive and have one-second resolution, so the
-    cursor also remembers which events at exactly ``timestamp`` were done.
+    cursor also remembers which events at exactly ``position`` were done.
     """
 
-    timestamp: int
-    uuids: frozenset[str] = field(default_factory=frozenset)
+    field: str
+    position: int
+    uuids: frozenset[str] = frozenset()
 
     @classmethod
     def parse(cls, raw: str) -> "PullCursor":
         data = json.loads(raw)
-        return cls(int(data["timestamp"]), frozenset(data["uuids"]))
+        return cls(str(data["field"]), int(data["position"]), frozenset(data["uuids"]))
 
     def dump(self) -> str:
-        return json.dumps({"timestamp": self.timestamp, "uuids": sorted(self.uuids)})
+        return json.dumps(
+            {
+                "field": self.field,
+                "position": self.position,
+                "uuids": sorted(self.uuids),
+            }
+        )
 
     def covers(self, position: int, uuid: str) -> bool:
-        return position < self.timestamp or (
-            position == self.timestamp and uuid in self.uuids
+        return position < self.position or (
+            position == self.position and uuid in self.uuids
         )
 
     def past(self, position: int, uuid: str) -> "PullCursor":
-        if position > self.timestamp:
-            return PullCursor(position, frozenset({uuid}))
-        return PullCursor(self.timestamp, self.uuids | {uuid})
+        if position > self.position:
+            return PullCursor(self.field, position, frozenset({uuid}))
+        return PullCursor(self.field, self.position, self.uuids | {uuid})
 
 
 class _Outcome(Enum):
@@ -98,10 +107,19 @@ class MispPuller:
         )
         lookback = timedelta(days=self._pull.initial_lookback_days)
         start = int((self._clock() - lookback).timestamp())
+        field = position_field(self._pull.published_only)
         self.collector_id = registration.id
-        self.cursor = load_cursor(
-            self._name, registration.cursor, PullCursor.parse
-        ) or PullCursor(start)
+        stored = load_cursor(self._name, registration.cursor, PullCursor.parse)
+        if stored is not None and stored.field != field:
+            # published_only was switched: the stored position means something
+            # else now, so start over from the lookback window.
+            logger.warning(
+                "[%s] published_only changed; pulling again from %d days back",
+                self._name,
+                self._pull.initial_lookback_days,
+            )
+            stored = None
+        self.cursor = stored or PullCursor(field, start)
 
     def _candidates(self, cursor: PullCursor) -> list[MispEventRef]:
         """Every event changed since the cursor, oldest first."""
@@ -111,7 +129,7 @@ class MispPuller:
             rows = self._retry(
                 partial(
                     self._misp.index_events,
-                    since=cursor.timestamp,
+                    since=cursor.position,
                     published_only=self._pull.published_only,
                     tags=self._pull.tags,
                     orgs=self._pull.orgs,

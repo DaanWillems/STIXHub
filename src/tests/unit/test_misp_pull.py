@@ -46,7 +46,7 @@ async def test_events_are_ingested_and_recorded_as_misp_owned() -> None:
     assert len(await _reports(platform)) == 2
     records = await platform.sync.get_many(INSTANCE, [EVENT_UUID, OTHER])
     assert {r.origin for r in records.values()} == {MispEventOrigin.misp}
-    assert pull.cursor == PullCursor(T0 + 5, frozenset({OTHER}))
+    assert pull.cursor == PullCursor("publish_timestamp", T0 + 5, frozenset({OTHER}))
 
 
 async def test_a_second_pull_ingests_only_new_events() -> None:
@@ -171,7 +171,7 @@ async def test_unconvertible_event_is_skipped(monkeypatch: pytest.MonkeyPatch) -
     pull, _ = await _pull(misp)
 
     assert pull.run_once() == 1
-    assert pull.cursor == PullCursor(T0 + 1, frozenset({OTHER}))
+    assert pull.cursor == PullCursor("publish_timestamp", T0 + 1, frozenset({OTHER}))
 
 
 async def test_events_pushed_by_another_connector_on_the_same_misp_are_not_pulled() -> (
@@ -227,3 +227,21 @@ async def test_unreadable_stored_cursor_fails_registration() -> None:
 
     with pytest.raises(RegistrationError, match="can't read"):
         make_connector(config, FakeMisp(), platform)
+
+
+async def test_switching_published_only_starts_over_from_the_lookback() -> None:
+    misp = FakeMisp()
+    misp.seed(small_event(EVENT_UUID, "Draft", T0, published=False))
+    pull, platform = await _pull(misp)
+    pull.run_once()
+    assert pull.cursor is not None and pull.cursor.field == "publish_timestamp"
+
+    config = connector_config(
+        pull={"target_bucket": "raw", "published_only": False}, push=None
+    )
+    switched = make_connector(config, misp, platform).puller
+
+    assert switched is not None and switched.cursor == PullCursor(
+        "timestamp", T0 - 30 * 86400
+    )
+    assert switched.run_once() == 1

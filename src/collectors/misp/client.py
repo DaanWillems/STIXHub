@@ -43,6 +43,11 @@ class MispEventRef:
     publish_timestamp: int  # last published; 0 if never
 
 
+def position_field(published_only: bool) -> str:
+    """The index field ``index_events`` filters and sorts on."""
+    return "publish_timestamp" if published_only else "timestamp"
+
+
 def index_position(ref: MispEventRef, published_only: bool) -> int:
     """Where ``ref`` sits in the index ``index_events`` lists.
 
@@ -166,7 +171,7 @@ class PyMispClient:
         limit: int,
     ) -> list[MispEventRef]:
         api = self._api()
-        position = "publish_timestamp" if published_only else "timestamp"
+        position = position_field(published_only)
         rows = self._call(
             "search event index",
             api.search_index,
