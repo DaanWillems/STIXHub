@@ -131,10 +131,11 @@ so it can't rely on being reachable from localhost only. Every collector, TAXII 
 shares a **secret** with the platform and sends it as `Authorization: Bearer <secret>` on
 every call (`collector_auth.py`):
 
-- The secret comes from `STIX_HUB_COLLECTOR_SECRETS__<NAME>`, with the collector's name
-  upper-cased and `-` written as `_` (env var names can't hold `-`). A collector without
-  one gets a random secret for the run, shared in-process by the server and the collector
-  thread; a collector running elsewhere needs the configured one.
+- Each collector has its own secret in `STIX_HUB_COLLECTOR_SECRETS__<NAME>`, with the
+  collector's name upper-cased and `-` written as `_` (env var names can't hold `-`). The
+  platform and the collector read the same variable, wherever each runs, so several
+  server processes or replicas agree on it. Startup fails, naming the variable, when a
+  collector has no secret or one shorter than 16 characters.
 - Each registration is **granted one bucket and one kind of access**, taken from the
   config. Nothing else is reachable:
 

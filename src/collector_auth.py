@@ -9,8 +9,6 @@ a collector can never read a bucket its config doesn't name.
 """
 
 import hmac
-import logging
-import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -18,8 +16,6 @@ from enum import Enum
 from pydantic import SecretStr
 
 from models.domain import CollectorConfig, MispConnectorConfig
-
-logger = logging.getLogger(__name__)
 
 
 class BucketAccess(str, Enum):
@@ -89,27 +85,37 @@ def collector_grants(configs: Sequence[CollectorConfig]) -> dict[str, CollectorG
     return {grant.registration: grant for grant in grants}
 
 
+MIN_SECRET_LENGTH = 16
+
+
 def resolve_collector_secrets(
     configs: Sequence[CollectorConfig], configured: Mapping[str, SecretStr]
 ) -> dict[str, str]:
     """Each collector's secret, keyed by collector name.
 
-    Secrets come from ``STIX_HUB_COLLECTOR_SECRETS__<NAME>`` (``-`` in the name
-    becomes ``_``). A collector without one gets a random secret for this run,
-    which is enough while collectors run inside the server process; a
-    collector running elsewhere needs the configured one.
+    Every collector needs its own secret in ``STIX_HUB_COLLECTOR_SECRETS__<NAME>``
+    (``-`` in the name becomes ``_``), shared by the platform and the
+    collector wherever either runs. Raises naming every missing or too short
+    secret.
     """
     resolved: dict[str, str] = {}
+    problems: list[str] = []
     for config in configs:
+        env = f"STIX_HUB_COLLECTOR_SECRETS__{secret_key(config.name).upper()}"
         found = configured.get(secret_key(config.name))
         if found is None:
-            logger.info(
-                "No secret configured for collector '%s'; using a random one",
-                config.name,
+            problems.append(f"collector '{config.name}' has no secret; set {env}")
+        elif len(found.get_secret_value()) < MIN_SECRET_LENGTH:
+            problems.append(
+                f"the secret of collector '{config.name}' ({env}) is shorter "
+                f"than {MIN_SECRET_LENGTH} characters"
             )
-            resolved[config.name] = secrets.token_urlsafe(32)
         else:
             resolved[config.name] = found.get_secret_value()
+    if problems:
+        raise RuntimeError(
+            "Collector secrets are misconfigured: " + "; ".join(problems)
+        )
     return resolved
 
 

@@ -180,16 +180,27 @@ def test_misp_api_key_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- collector secrets ---
 
 
-def test_collector_secret_comes_from_settings_or_is_random() -> None:
+def test_each_collector_has_its_own_configured_secret() -> None:
+    configs = [_collector(name="mitre-attack"), _collector(name="other")]
+    configured = {
+        "mitre_attack": SecretStr("s" * 16),
+        "other": SecretStr("o" * 16),
+    }
+
+    assert resolve_collector_secrets(configs, configured) == {
+        "mitre-attack": "s" * 16,
+        "other": "o" * 16,
+    }
+
+
+def test_missing_or_short_secrets_stop_startup() -> None:
     configs = [_collector(name="mitre-attack"), _collector(name="other")]
 
-    secrets = resolve_collector_secrets(
-        configs, {"mitre_attack": SecretStr("configured")}
-    )
+    with pytest.raises(RuntimeError) as raised:
+        resolve_collector_secrets(configs, {"other": SecretStr("short")})
 
-    assert secrets["mitre-attack"] == "configured"
-    assert len(secrets["other"]) >= 32
-    assert resolve_collector_secrets(configs, {})["other"] != secrets["other"]
+    assert "set STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK" in str(raised.value)
+    assert "'other' (STIX_HUB_COLLECTOR_SECRETS__OTHER) is shorter" in str(raised.value)
 
 
 def test_names_sharing_a_secret_key_are_rejected() -> None:

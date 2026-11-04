@@ -51,7 +51,7 @@ docker compose up -d
 - `STIX_HUB_WORKER_BATCH_SIZE` (default: 10) — entities taken from a source per batch
 - `STIX_HUB_COLLECTOR_CREDENTIALS__<ENV>__USER` / `__PASS` — TAXII collector credentials
 - `STIX_HUB_MISP_CREDENTIALS__<ENV>__API_KEY` — MISP connector API keys
-- `STIX_HUB_COLLECTOR_SECRETS__<NAME>` — secret a collector shares with the platform's internal API (random per run when unset)
+- `STIX_HUB_COLLECTOR_SECRETS__<NAME>` — secret each collector shares with the platform's internal API (required per collector, `-` in the name as `_`, at least 16 characters)
 
 ## Architecture
 
