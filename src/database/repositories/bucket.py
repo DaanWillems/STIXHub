@@ -1,10 +1,25 @@
+import itertools
 from abc import ABC, abstractmethod
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.models import BucketModel, StixEntityModel
 from models.domain import Bucket, BucketMode, ProcessingStatus, StixEntity
+
+
+# The start of the oldest other transaction that may still insert rows (one
+# that has written, or is running a statement right now), or the current time.
+_OLDEST_RUNNING_WRITER = text(
+    """
+    SELECT coalesce(min(xact_start), clock_timestamp())
+    FROM pg_stat_activity
+    WHERE pid <> pg_backend_pid()
+      AND datname = current_database()
+      AND xact_start IS NOT NULL
+      AND (backend_xid IS NOT NULL OR state = 'active')
+    """
+)
 
 
 def _bucket_from_model(model: BucketModel) -> Bucket:
@@ -84,6 +99,30 @@ class BucketRepository(ABC):
         ``stix_id`` or appears in its ``other_stix_ids``. When several
         entities match, the oldest (lowest ``id``) wins. Refs with no match
         are left out of the result.
+        """
+
+
+    @abstractmethod
+    async def get_entities_after(
+        self, bucket_id: int, after_id: int, limit: int
+    ) -> list[StixEntity]:
+        """Up to ``limit`` entities of ``bucket_id`` with ``id > after_id``, by ``id``.
+
+        For readers that keep a cursor on ``id``: ids are handed out before
+        commit, so a row may become visible after rows with higher ids. The
+        result therefore stops before the first row that a transaction still
+        running might precede with a lower id; it is safe to move a cursor to
+        the last id returned.
+        """
+
+    @abstractmethod
+    async def find_latest_by_refs(
+        self, bucket_id: int, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        """Map STIX IDs to entities of any type stored in ``bucket_id``.
+
+        Like ``find_by_refs``, but when several entities match a ref the
+        newest (highest ``id``) wins. Refs with no match are left out.
         """
 
 
@@ -202,6 +241,30 @@ class InMemoryBucketRepository(BucketRepository):
         )
         found: dict[str, StixEntity] = {}
         for entity in candidates:
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found
+
+
+    async def get_entities_after(
+        self, bucket_id: int, after_id: int, limit: int
+    ) -> list[StixEntity]:
+        entities = sorted(self._store[bucket_id][1], key=lambda entity: entity.id)
+        return [entity for entity in entities if entity.id > after_id][:limit]
+
+    async def find_latest_by_refs(
+        self, bucket_id: int, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        entities = self._store[bucket_id][1] if bucket_id in self._store else []
+        newest_first = sorted(
+            entities,
+            key=lambda entity: entity.id,
+            reverse=True,
+        )
+        found: dict[str, StixEntity] = {}
+        for entity in newest_first:
             for ref in (entity.stix_id, *entity.other_stix_ids):
                 if ref in wanted:
                     found.setdefault(ref, entity)
@@ -396,6 +459,59 @@ class DatabaseBucketRepository(BucketRepository):
                 ),
             )
             .order_by(StixEntityModel.id)
+        )
+        found: dict[str, StixEntity] = {}
+        for model in result.scalars().all():
+            entity = _entity_from_model(model)
+            for ref in (entity.stix_id, *entity.other_stix_ids):
+                if ref in wanted:
+                    found.setdefault(ref, entity)
+        return found
+
+    async def get_entities_after(
+        self, bucket_id: int, after_id: int, limit: int
+    ) -> list[StixEntity]:
+        # A transaction still running can only hold ids it took after it
+        # started, so rows inserted before the oldest such transaction started
+        # have no lower-id rows left to appear.
+        horizon = (
+            await self._session.execute(_OLDEST_RUNNING_WRITER)
+        ).scalar_one()
+        result = await self._session.execute(
+            select(StixEntityModel)
+            .where(
+                StixEntityModel.bucket_id == bucket_id,
+                StixEntityModel.id > after_id,
+            )
+            .order_by(StixEntityModel.id)
+            .limit(limit)
+        )
+        return [
+            _entity_from_model(model)
+            for model in itertools.takewhile(
+                lambda model: model.inserted_at < horizon, result.scalars().all()
+            )
+        ]
+
+    async def find_latest_by_refs(
+        self, bucket_id: int, refs: list[str]
+    ) -> dict[str, StixEntity]:
+        wanted = set(refs)
+        if not wanted:
+            return {}
+        result = await self._session.execute(
+            select(StixEntityModel)
+            .where(
+                StixEntityModel.bucket_id == bucket_id,
+                or_(
+                    StixEntityModel.stix_id.in_(wanted),
+                    *(
+                        StixEntityModel.other_stix_ids.contains([ref])
+                        for ref in wanted
+                    ),
+                ),
+            )
+            .order_by(StixEntityModel.id.desc())
         )
         found: dict[str, StixEntity] = {}
         for model in result.scalars().all():

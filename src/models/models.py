@@ -3,13 +3,21 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.ext.mutable import MutableDict
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, UUID as SAUUID
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    UUID as SAUUID,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from enum import Enum
-from models.domain import BucketMode, ProcessingStatus
+from models.domain import BucketMode, MispEventOrigin, ProcessingStatus
 
 
 class StixType(Enum):
@@ -34,9 +42,24 @@ class StixType(Enum):
     Vulnerability = "vulnerability"
 
     # --- SCOs ---
+    Artifact = "artifact"
+    AutonomousSystem = "autonomous-system"
+    Directory = "directory"
     DomainName = "domain-name"
+    EmailAddr = "email-addr"
+    EmailMessage = "email-message"
+    File = "file"
     IPV4Addr = "ipv4-addr"
+    IPV6Addr = "ipv6-addr"
+    MACAddr = "mac-addr"
+    Mutex = "mutex"
+    NetworkTraffic = "network-traffic"
+    Process = "process"
+    Software = "software"
     URL = "url"
+    UserAccount = "user-account"
+    WindowsRegistryKey = "windows-registry-key"
+    X509Certificate = "x509-certificate"
 
     # --- SMOs ---
     MarkingDefinition = "marking-definition"
@@ -44,6 +67,9 @@ class StixType(Enum):
     # --- SROs ---
     Relationship = "relationship"
     Sighting = "sighting"
+
+    # Custom ``x-*`` types (e.g. MISP's x-misp-attribute) are stored as well,
+    # but are not listed here.
 
     # --- Platform-internal meta types ---
     Object = "object"
@@ -72,7 +98,26 @@ SDO_TYPES = [
     StixType.Vulnerability,
 ]
 
-SCO_TYPES = [StixType.DomainName, StixType.IPV4Addr, StixType.URL]
+SCO_TYPES = [
+    StixType.Artifact,
+    StixType.AutonomousSystem,
+    StixType.Directory,
+    StixType.DomainName,
+    StixType.EmailAddr,
+    StixType.EmailMessage,
+    StixType.File,
+    StixType.IPV4Addr,
+    StixType.IPV6Addr,
+    StixType.MACAddr,
+    StixType.Mutex,
+    StixType.NetworkTraffic,
+    StixType.Process,
+    StixType.Software,
+    StixType.URL,
+    StixType.UserAccount,
+    StixType.WindowsRegistryKey,
+    StixType.X509Certificate,
+]
 
 
 class Base(DeclarativeBase):
@@ -100,7 +145,8 @@ class StixEntityModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     bucket_id: Mapped[int] = mapped_column(ForeignKey("bucket_model.id"))
     stix_id: Mapped[str]
-    type: Mapped[str] = mapped_column(String(30))
+    # Wide enough for custom type names such as x-misp-galaxy-cluster.
+    type: Mapped[str] = mapped_column(String(128))
     spec_version: Mapped[str] = mapped_column(String(30))
     creator: Mapped[str] = mapped_column(nullable=False)
     value: Mapped[str] = mapped_column(nullable=False)
@@ -127,6 +173,11 @@ class StixEntityModel(Base):
     )
     # Name of the last pipeline that wrote this entity; NULL when ingested directly.
     pipeline: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    # When the row was written, by the database's clock (not the transaction
+    # start like now()): readers use it to tell rows they may safely pass.
+    inserted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
 
 
 class CollectorModel(Base):
@@ -139,6 +190,33 @@ class CollectorModel(Base):
     cursor: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MispEventSyncModel(Base):
+    """Which events of a MISP instance STIXHub has seen, and who owns them."""
+
+    __tablename__ = "misp_event_sync"
+    __table_args__ = (UniqueConstraint("instance", "event_uuid"),)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # The MISP instance's normalised URL, shared by all its connectors.
+    instance: Mapped[str] = mapped_column(nullable=False)
+    event_uuid: Mapped[str] = mapped_column(nullable=False)
+    origin: Mapped[str] = mapped_column(
+        SAEnum(
+            MispEventOrigin,
+            values_callable=lambda x: [e.value for e in x],
+            name="misp_event_origin",
+        ),
+        nullable=False,
+    )
+    misp_timestamp: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    creator_org: Mapped[str | None] = mapped_column(nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
 

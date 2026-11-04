@@ -5,12 +5,14 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 
 import uvicorn
+from collector_auth import CollectorAuth, resolve_collector_secrets
 from collectors.runner import create_runner
 from collectors.validation import validate_collectors
 from config import load_platform_config, settings
 from database.database import db
 from database.repositories.bucket import DatabaseBucketRepository
 from routes.collectors import collectors_router
+from routes.misp_sync import misp_sync_router
 from routes.taxii2 import (
     provision_buckets,
     taxii2_router,
@@ -38,9 +40,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     else:
         app.state.active_collections = {}
 
+    # Collectors authenticate to the internal API with a secret each.
+    collector_secrets = resolve_collector_secrets(
+        platform_config.collectors, settings.COLLECTOR_SECRETS
+    )
+    app.state.collector_auth = CollectorAuth.from_config(
+        platform_config.collectors, collector_secrets
+    )
+
     # Collector threads register over HTTP once the server is accepting
     # connections, so they are started last and stopped first.
-    runner = create_runner(platform_config.collectors, settings.PLATFORM_INTERNAL_URL)
+    runner = create_runner(
+        platform_config.collectors,
+        settings.PLATFORM_INTERNAL_URL,
+        collector_secrets,
+    )
     runner.start()
     try:
         yield
@@ -54,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(taxii2_router)
     app.include_router(users_router)
     app.include_router(collectors_router)
+    app.include_router(misp_sync_router)
     return app
 
 

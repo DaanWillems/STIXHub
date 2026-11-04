@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from fastapi import Request
 
+from collector_auth import CollectorAuth
 from config import settings
 from models.domain import User
 from models.domain import PlatformConfig
@@ -20,14 +21,20 @@ from database.repositories.collector import (
     DatabaseCollectorRepository,
     InMemoryCollectorRepository,
 )
+from database.repositories.misp_sync import (
+    DatabaseMispSyncRepository,
+    InMemoryMispSyncRepository,
+    MispSyncRepository,
+)
 from database.repositories.user import DatabaseUserRepository, UserRepository
 from database.database import db
 
 _in_memory_bucket_repo = InMemoryBucketRepository()
 _in_memory_collector_repo = InMemoryCollectorRepository()
+_in_memory_misp_sync_repo = InMemoryMispSyncRepository()
 _bearer = HTTPBearer(auto_error=False)
 
-_CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
+CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 
 
 async def get_bucket_repo() -> AsyncGenerator[BucketRepository, None]:
@@ -46,18 +53,26 @@ async def get_collector_repo() -> AsyncGenerator[CollectorRepository, None]:
             yield DatabaseCollectorRepository(session)
 
 
+async def get_misp_sync_repo() -> AsyncGenerator[MispSyncRepository]:
+    if settings.BUCKET_REPO_BACKEND == "memory":
+        yield _in_memory_misp_sync_repo
+    else:
+        async with db.get_session() as session:
+            yield DatabaseMispSyncRepository(session)
+
+
 async def get_user_repo() -> AsyncGenerator[UserRepository, None]:
     async with db.get_session() as session:
         yield DatabaseUserRepository(session)
 
 
-async def require_admin(credentials: _CredentialsDep) -> None:
+async def require_admin(credentials: CredentialsDep) -> None:
     if credentials is None or credentials.credentials != settings.ADMIN_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 async def get_current_user(
-    credentials: _CredentialsDep,
+    credentials: CredentialsDep,
     repo: Annotated[UserRepository, Depends(get_user_repo)],
 ) -> User:
     if credentials is None:
@@ -67,6 +82,11 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
+
+
+def get_collector_auth(request: Request) -> CollectorAuth:
+    auth: CollectorAuth = request.app.state.collector_auth
+    return auth
 
 
 def get_platform_config(request: Request) -> PlatformConfig:

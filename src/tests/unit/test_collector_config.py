@@ -1,11 +1,23 @@
 import pytest
+from pydantic import SecretStr, ValidationError
 
-from collectors.validation import load_credentials, validate_collectors
+from collector_auth import resolve_collector_secrets
+from collectors.validation import (
+    load_credentials,
+    load_misp_api_key,
+    validate_collectors,
+)
 from config import CollectorCredentials, Settings
-from models.domain import BucketConfig, BucketMode, CollectorConfig, PlatformConfig
+from models.domain import (
+    BucketConfig,
+    BucketMode,
+    MispConnectorConfig,
+    PlatformConfig,
+    TaxiiCollectorConfig,
+)
 
 
-def _collector(**overrides: object) -> CollectorConfig:
+def _collector(**overrides: object) -> TaxiiCollectorConfig:
     values: dict[str, object] = {
         "name": "feed",
         "remote_url": "https://taxii.example.com/api/",
@@ -13,7 +25,7 @@ def _collector(**overrides: object) -> CollectorConfig:
         "target_bucket": "intel",
     }
     values.update(overrides)
-    return CollectorConfig.model_validate(values)
+    return TaxiiCollectorConfig.model_validate(values)
 
 
 _BUCKETS = [BucketConfig(name="intel", mode=BucketMode.append)]
@@ -74,3 +86,125 @@ def test_settings_reads_collector_credentials_from_env(
         "alice",
         "s3cret",
     )
+
+
+# --- MISP connectors ---
+
+_MISP_BUCKETS = [
+    BucketConfig(name=name, mode=BucketMode.append) for name in ("raw", "refined")
+]
+
+
+def _misp(**overrides: object) -> MispConnectorConfig:
+    values: dict[str, object] = {
+        "type": "misp",
+        "name": "circl",
+        "url": "https://MISP.example.org/",
+        "credentials_env": "CIRCL",
+        "pull": {"target_bucket": "raw"},
+        "push": {"source_bucket": "refined"},
+    }
+    values.update(overrides)
+    return MispConnectorConfig.model_validate(values)
+
+
+def test_collectors_are_told_apart_by_type() -> None:
+    config = PlatformConfig.model_validate(
+        {
+            "buckets": [],
+            "collections": [],
+            "roles": [],
+            "pipelines": [],
+            "collectors": [
+                _collector().model_dump(exclude={"type"}),
+                _misp().model_dump(),
+            ],
+        }
+    )
+    assert [type(c) for c in config.collectors] == [
+        TaxiiCollectorConfig,
+        MispConnectorConfig,
+    ]
+
+
+def test_misp_defaults() -> None:
+    config = _misp()
+    assert config.verify_tls is True
+    assert config.pull is not None and config.pull.published_only
+    assert config.pull.initial_lookback_days == 30
+    assert config.push is not None and config.push.distribution == 0
+    assert not config.push.publish
+    assert config.normalized_url == "https://misp.example.org"
+
+
+def test_valid_misp_connector_passes() -> None:
+    validate_collectors(_MISP_BUCKETS, [_misp(), _misp(name="pull-only", push=None)])
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        ({"pull": None, "push": None}, "neither pull nor push"),
+        ({"pull": {"target_bucket": "missing"}}, "unknown bucket 'missing'"),
+        ({"push": {"source_bucket": "raw"}}, "same bucket 'raw'"),
+        (
+            {"push": {"source_bucket": "refined", "distribution": 4}},
+            "distribution 4 requires sharing_group_id",
+        ),
+    ],
+)
+def test_invalid_misp_connector_is_rejected(
+    overrides: dict[str, object], error: str
+) -> None:
+    with pytest.raises(RuntimeError, match=error):
+        validate_collectors(_MISP_BUCKETS, [_misp(**overrides)])
+
+
+@pytest.mark.parametrize("name", ["", "has:colon", "has space"])
+def test_collector_names_are_restricted(name: str) -> None:
+    with pytest.raises(ValidationError):
+        _misp(name=name)
+    with pytest.raises(ValidationError):
+        _collector(name=name)
+
+
+def test_misp_api_key_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STIX_HUB_MISP_CREDENTIALS__CIRCL__API_KEY", "k3y")
+
+    settings = Settings()  # type: ignore[call-arg]  # values come from the env
+    assert load_misp_api_key(_misp(), settings.MISP_CREDENTIALS) == "k3y"
+    with pytest.raises(RuntimeError, match="MISP_CREDENTIALS__CIRCL__API_KEY"):
+        load_misp_api_key(_misp(), credentials={})
+
+
+# --- collector secrets ---
+
+
+def test_each_collector_has_its_own_configured_secret() -> None:
+    configs = [_collector(name="mitre-attack"), _collector(name="other")]
+    configured = {
+        "mitre_attack": SecretStr("s" * 16),
+        "other": SecretStr("o" * 16),
+    }
+
+    assert resolve_collector_secrets(configs, configured) == {
+        "mitre-attack": "s" * 16,
+        "other": "o" * 16,
+    }
+
+
+def test_missing_or_short_secrets_stop_startup() -> None:
+    configs = [_collector(name="mitre-attack"), _collector(name="other")]
+
+    with pytest.raises(RuntimeError) as raised:
+        resolve_collector_secrets(configs, {"other": SecretStr("short")})
+
+    assert "set STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK" in str(raised.value)
+    assert "'other' (STIX_HUB_COLLECTOR_SECRETS__OTHER) is shorter" in str(raised.value)
+
+
+def test_names_sharing_a_secret_key_are_rejected() -> None:
+    with pytest.raises(RuntimeError, match="Duplicate collector name 'Feed'"):
+        validate_collectors(
+            _BUCKETS, [_collector(name="feed"), _collector(name="Feed")]
+        )

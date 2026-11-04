@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,11 +32,6 @@ def _name_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 def _indicator_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     v = raw["pattern"]
-    return v, {"value": v}
-
-
-def _grouping_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    v = raw["context"]
     return v, {"value": v}
 
 
@@ -142,10 +137,10 @@ def platform_id(stix_type: str, value: str) -> str:
     """Deterministic platform ID of an object of ``stix_type`` with ``value``.
 
     Matches the ID ``process`` assigns to value-keyed types (everything except
-    relationships). A ``tlp:*`` marking value maps to its TLP 2.0 ID.
+    relationships and occurrence types). A ``tlp:*`` marking value maps to its TLP 2.0 ID.
     """
-    if stix_type == "relationship":
-        raise ValueError("relationship IDs are not derived from a single value")
+    if stix_type == "relationship" or keeps_original_identity(stix_type):
+        raise ValueError(f"{stix_type} IDs are not derived from a single value")
     if stix_type == "marking-definition" and value in TLP_2_IDS:
         return TLP_2_IDS[value]
     if stix_type == "marking-definition" and value in TLP_1_IDS:
@@ -153,10 +148,15 @@ def platform_id(stix_type: str, value: str) -> str:
     return _uuid5(stix_type, {"value": value})
 
 
-# Properties holding a single STIX ID that must be rewritten to platform IDs
-# before an object is processed, keyed by STIX type.
+# Ref properties that contribute to an object's platform ID or value, keyed by
+# STIX type. Ingest rewrites them to platform IDs (see ``process``) so the same
+# fact gets the same ID whatever IDs its source used. Other refs, such as a
+# container's ``object_refs``, keep their original IDs; they resolve through
+# ``other_stix_ids``.
 REF_PROPERTIES: dict[str, tuple[str, ...]] = {
     "relationship": ("source_ref", "target_ref"),
+    "network-traffic": ("src_ref", "dst_ref"),
+    "email-message": ("from_ref",),
 }
 
 
@@ -165,16 +165,112 @@ def unresolved_refs(raw: dict[str, Any]) -> list[str]:
     return [raw[prop] for prop in REF_PROPERTIES.get(raw["type"], ()) if prop in raw]
 
 
-_PROCESSORS: dict[str, Any] = {
-    # SCOs — contributing property per STIX 2.1 spec
+def _first(raw: dict[str, Any], *paths: str) -> Any:
+    """The first non-empty value among ``paths`` (``a.b`` looks inside dicts)."""
+    for path in paths:
+        value: Any = raw
+        for key in path.split("."):
+            value = value.get(key) if isinstance(value, dict) else None
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def _value_processor(
+    *paths: str, joined: bool = False
+) -> Callable[[dict[str, Any]], tuple[str, dict[str, Any]]]:
+    """Processor whose value is the first of ``paths`` present on the object.
+
+    With ``joined``, every present path contributes, joined by spaces.
+    """
+
+    def processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        if joined:
+            parts = [str(v) for path in paths if (v := _first(raw, path)) is not None]
+            value = " ".join(parts) or None
+        else:
+            found = _first(raw, *paths)
+            value = None if found is None else str(found)
+        if value is None:
+            raise ValueError(
+                f"{raw['type']} requires at least one of: {', '.join(paths)}"
+            )
+        return value, {"value": value}
+
+    return processor
+
+
+_HASHES = ("hashes.SHA-256", "hashes.SHA-1", "hashes.MD5", "hashes.SHA-512")
+
+
+def _network_traffic_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def endpoint(side: str) -> str:
+        ref = raw.get(f"{side}_ref", "*")
+        port = raw.get(f"{side}_port")
+        return f"{ref}:{port}" if port is not None else ref
+
+    protocols = ",".join(raw.get("protocols", []))
+    v = f"{endpoint('src')} -> {endpoint('dst')} {protocols}".strip()
+    return v, {"value": v}
+
+
+def _custom_processor(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    v = _first(raw, "name", "x_misp_value", "x_misp_name") or raw["id"]
+    return str(v), {"value": v}
+
+
+# Types that are a specific occurrence (a publication, an observation, a MISP
+# attribute) rather than a fact. Their platform ID derives from their original
+# ID, so two of them never merge and edits keep the ID; custom ``x-*`` types are
+# treated the same way.
+ORIGINAL_ID_TYPES = frozenset(
+    {
+        "report",
+        "grouping",
+        "note",
+        "opinion",
+        "observed-data",
+        "sighting",
+        "process",
+    }
+)
+
+
+def is_custom_type(stix_type: str) -> bool:
+    return stix_type.startswith("x-")
+
+
+def keeps_original_identity(stix_type: str) -> bool:
+    return stix_type in ORIGINAL_ID_TYPES or is_custom_type(stix_type)
+
+
+_PROCESSORS: dict[str, Callable[[dict[str, Any]], tuple[str, dict[str, Any]]]] = {
+    # SCOs — value follows the STIX 2.1 ID contributing properties
     "ipv4-addr": _sco_value_processor,
+    "ipv6-addr": _sco_value_processor,
+    "mac-addr": _sco_value_processor,
     "domain-name": _sco_value_processor,
+    "email-addr": _sco_value_processor,
     "url": _sco_value_processor,
+    "autonomous-system": _value_processor("number"),
+    "file": _value_processor(*_HASHES, "name"),
+    "artifact": _value_processor(*_HASHES, "url", "payload_bin"),
+    "directory": _value_processor("path"),
+    "mutex": _value_processor("name"),
+    "software": _value_processor("vendor", "name", "version", joined=True),
+    "user-account": _value_processor(
+        "account_type", "user_id", "account_login", joined=True
+    ),
+    "windows-registry-key": _value_processor("key"),
+    "x509-certificate": _value_processor(*_HASHES, "serial_number"),
+    "network-traffic": _network_traffic_processor,
+    "email-message": _value_processor("subject", "message_id", "from_ref"),
+    "process": _value_processor("command_line", "pid", "id"),
     # SDOs — contributing property is the searchable value
     "attack-pattern": _name_processor,
     "campaign": _name_processor,
     "course-of-action": _name_processor,
-    "grouping": _grouping_processor,
+    "grouping": _value_processor("name", "context"),
     "identity": _name_processor,
     "indicator": _indicator_processor,
     "infrastructure": _name_processor,
@@ -191,8 +287,9 @@ _PROCESSORS: dict[str, Any] = {
     "vulnerability": _name_processor,
     # SMOs
     "marking-definition": _marking_definition_processor,
-    # SROs — identified by the (source, type, target) triple
+    # SROs — a relationship is identified by its (source, type, target) triple
     "relationship": _relationship_processor,
+    "sighting": _value_processor("sighting_of_ref"),
 }
 
 
@@ -204,6 +301,9 @@ def process(
     ``id_map`` maps original STIX IDs to platform IDs. Reference properties
     (see ``REF_PROPERTIES``) are rewritten through it before the ID is
     derived; refs missing from the map are kept unchanged.
+
+    Occurrence types (``ORIGINAL_ID_TYPES`` and custom ``x-*`` types) derive
+    their ID from the original ID; every other type from its value.
     """
     obj_type = raw["type"]
     original_id = raw["id"]
@@ -219,12 +319,16 @@ def process(
         }
 
     processor = _PROCESSORS.get(obj_type)
+    if processor is None and is_custom_type(obj_type):
+        processor = _custom_processor
     if processor is None:
         raise NotImplementedError(
             f"No processor implemented for STIX type '{obj_type}'"
         )
 
     value, contributing = processor(raw)
+    if keeps_original_identity(obj_type):
+        contributing = {"original_id": original_id}
     object_id = _well_known_id(obj_type, raw) or _uuid5(obj_type, contributing)
     processed_obj = {**raw, "id": object_id}
 

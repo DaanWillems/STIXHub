@@ -5,16 +5,18 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner, create_runner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from models.domain import CollectorConfig
+from config import MispCredentials
+from models.domain import MispConnectorConfig, TaxiiCollectorConfig
 
 
-def _config(name: str = "feed", shutdown_timeout: float = 5) -> CollectorConfig:
-    return CollectorConfig(
+def _config(name: str = "feed", shutdown_timeout: float = 5) -> TaxiiCollectorConfig:
+    return TaxiiCollectorConfig(
         name=name,
         remote_url="https://taxii.example.com/api/",
         remote_collection_id="coll-1",
@@ -31,7 +33,7 @@ def _platform_handler(request: httpx.Request) -> httpx.Response:
 
 
 def _collector(
-    config: CollectorConfig,
+    config: TaxiiCollectorConfig,
     stop: threading.Event,
     taxii_handler: httpx.MockTransport,
 ) -> TaxiiCollector:
@@ -39,7 +41,9 @@ def _collector(
         config,
         TaxiiClient(httpx.Client(transport=taxii_handler), config.remote_url, "c"),
         PlatformClient(
-            httpx.Client(transport=httpx.MockTransport(_platform_handler)), "http://p"
+            httpx.Client(transport=httpx.MockTransport(_platform_handler)),
+            "http://p",
+            "secret",
         ),
         stop_event=stop,
         backoff_base=0,
@@ -110,4 +114,28 @@ def test_runner_abandons_thread_after_shutdown_timeout(
 def test_create_runner_fails_fast_on_missing_credentials() -> None:
     config = _config().model_copy(update={"credentials_env": "FEED"})
     with pytest.raises(RuntimeError, match="COLLECTOR_CREDENTIALS__FEED__USER"):
-        create_runner([config], "http://p", credentials={})
+        create_runner([config], "http://p", {"feed": "s"}, credentials={})
+
+
+def test_create_runner_builds_misp_connectors() -> None:
+    config = MispConnectorConfig.model_validate(
+        {
+            "type": "misp",
+            "name": "circl",
+            "url": "https://misp.example.org",
+            "credentials_env": "CIRCL",
+            "push": {"source_bucket": "intel"},
+        }
+    )
+
+    runner = create_runner(
+        [config],
+        "http://platform",
+        {"circl": "s"},
+        on_fatal=None,
+        misp_credentials={"circl": MispCredentials(api_key=SecretStr("k"))},
+    )
+
+    assert runner.threads == []  # nothing runs (or connects) before start()
+    with pytest.raises(RuntimeError, match="MISP_CREDENTIALS__CIRCL__API_KEY"):
+        create_runner([config], "http://platform", {"circl": "s"}, misp_credentials={})

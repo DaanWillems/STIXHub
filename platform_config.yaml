@@ -32,6 +32,17 @@ collectors:
    poll_interval: 300     # seconds, default 300
    max_retries: 3         # default 3
    shutdown_timeout: 30   # seconds, default 30
+ # A MISP connector syncs with a MISP instance both ways (see
+ # specs/misp-connector.md). Its API key comes from
+ # STIX_HUB_MISP_CREDENTIALS__<credentials_env>__API_KEY.
+ # - name: circl-misp
+ #   type: misp
+ #   url: https://misp.example.org
+ #   credentials_env: CIRCL_MISP
+ #   pull:
+ #     target_bucket: raw-intel
+ #   push:
+ #     source_bucket: refined-intel
 
 roles:
   - name: analyst

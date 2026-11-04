@@ -146,3 +146,53 @@ async def test_invalid_relationship_reported_as_failure() -> None:
     assert status.status == "complete_with_errors"
     assert status.success_count == 1
     assert status.failures[0].id == "relationship--bad"
+
+
+async def test_refs_resolved_in_dependency_order() -> None:
+    """A relationship to a connection waits for the connection, which waits
+    for its address, whatever order the batch lists them in."""
+    repo, bucket = await _setup()
+    assert bucket.id is not None
+    address = {
+        "type": "ipv4-addr",
+        "id": "ipv4-addr--orig",
+        "spec_version": "2.1",
+        "value": "198.51.100.7",
+    }
+    connection = {
+        "type": "network-traffic",
+        "id": "network-traffic--orig",
+        "spec_version": "2.1",
+        "dst_ref": "ipv4-addr--orig",
+        "protocols": ["tcp"],
+    }
+    rel = _relationship("relationship--orig", "malware--orig", "network-traffic--orig")
+
+    await ingest_objects(
+        repo, bucket, [rel, connection, address, _malware("malware--orig", "X")], "t"
+    )
+
+    stored = {e.type: e for e in await repo.get_entities(bucket_id=bucket.id)}
+    assert stored["network-traffic"].object["dst_ref"] == stored["ipv4-addr"].stix_id
+    assert stored["relationship"].object["target_ref"] == (
+        stored["network-traffic"].stix_id
+    )
+
+
+async def test_container_refs_keep_original_ids() -> None:
+    repo, bucket = await _setup()
+    assert bucket.id is not None
+    report = {
+        "type": "report",
+        "id": "report--orig",
+        "spec_version": "2.1",
+        "name": "Phishing",
+        "published": "2026-01-01T00:00:00Z",
+        "object_refs": ["malware--orig"],
+    }
+
+    await ingest_objects(repo, bucket, [report, _malware("malware--orig", "X")], "t")
+
+    stored = {e.type: e for e in await repo.get_entities(bucket_id=bucket.id)}
+    assert stored["report"].object["object_refs"] == ["malware--orig"]
+    assert stored["malware"].other_stix_ids == ["malware--orig"]

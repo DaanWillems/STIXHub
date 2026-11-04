@@ -1,26 +1,26 @@
 {
+    // Debug the API server and the pipeline worker separately.
+    // Needs PostgreSQL (`docker compose up -d`) and a selected Python interpreter
+    // with the project installed (`pip install -e ".[dev]"`).
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "STIXHub: uvicorn",
+            "name": "STIXHub: server",
             "type": "debugpy",
             "request": "launch",
             "module": "src",
-            "cwd": "${workspaceFolder}/",
+            "args": ["--mode", "server"],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.vscode/stixhub.env"
+        },
+        {
+            "name": "STIXHub: worker",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src",
             "args": ["--mode", "worker"],
-            "env": {
-                "STIX_HUB_DATABASE_HOST": "localhost",
-                "STIX_HUB_DATABASE_PORT": "5432",
-                "STIX_HUB_DATABASE_NAME": "app",
-                "STIX_HUB_DATABASE_USER": "postgres",
-                "STIX_HUB_DATABASE_PASS": "postgres",
-                "STIX_HUB_DATABASE_USE_NULLPOOL": "false",
-                "STIX_HUB_DATABASE_ENGINE_ECHO": "true",
-                "STIX_HUB_BUCKET_REPO_BACKEND": "database",
-                "STIX_HUB_PLATFORM_CONFIG": "./platform_config.yaml",
-                "STIX_HUB_ADMIN_API_KEY": "aa",
-                "PYTHONPATH": "${workspaceFolder}/src",
-            }
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.vscode/stixhub.env"
         }
     ]
 }

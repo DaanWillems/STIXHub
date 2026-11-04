@@ -13,7 +13,7 @@ from collectors.platform_client import PlatformClient
 from collectors.retry import RetriesExhausted, with_retries
 from collectors.taxii_client import TAXII_MEDIA_TYPE, TaxiiClient
 from collectors.taxii_collector import RegistrationError, TaxiiCollector
-from models.domain import CollectorConfig
+from models.domain import TaxiiCollectorConfig
 
 API_ROOT = "https://taxii.example.com/api/"
 PLATFORM = "http://platform"
@@ -104,7 +104,7 @@ def _collector(
     auth: tuple[str, str] | None = None,
     max_retries: int = 3,
 ) -> TaxiiCollector:
-    config = CollectorConfig(
+    config = TaxiiCollectorConfig(
         name="feed",
         remote_url=API_ROOT,
         remote_collection_id="coll-1",
@@ -118,7 +118,7 @@ def _collector(
         auth=auth,
     )
     platform_client = PlatformClient(
-        httpx.Client(transport=httpx.MockTransport(platform.handle)), PLATFORM
+        httpx.Client(transport=httpx.MockTransport(platform.handle)), PLATFORM, "s"
     )
     return TaxiiCollector(
         config,
