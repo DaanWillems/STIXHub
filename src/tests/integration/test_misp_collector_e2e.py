@@ -299,3 +299,17 @@ async def test_unavailable_event_is_skipped_and_cursor_advances(
     cursor = MispCursor.parse(collector.cursor)
     assert cursor.publish_timestamp == NOW - 90
     assert set(cursor.recent) == {gone, kept}
+
+
+async def test_rejected_api_key_aborts_poll_without_side_effects(
+    misp_server: tuple[MockMisp, TestClient], platform: Platform
+) -> None:
+    server, client = misp_server
+    server.add_event(1, NOW - 100)
+    collector = _make_collector(client, platform, api_key="wrong-key")
+    collector.register()
+
+    assert collector.poll_once() == 0
+    assert server.views == []  # no event was fetched
+    assert collector.cursor is None  # nothing persisted, lookback not fixed
+    assert await _entity_count(platform) == 0
