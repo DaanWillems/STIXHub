@@ -1,11 +1,16 @@
+import logging
+
 import pytest
 from pydantic import SecretStr, TypeAdapter
 
 from collectors.validation import (
+    load_api_key,
     load_credentials,
     load_secret,
+    validate_collector_api_keys,
     validate_collector_secrets,
     validate_collectors,
+    warn_misp_append_buckets,
 )
 from config import CollectorCredentials, Settings
 from models.domain import (
@@ -256,3 +261,67 @@ def test_misp_requires_misp_url_and_api_key_env() -> None:
 def test_explicit_null_type_rejected() -> None:
     with pytest.raises(ValueError, match="union_tag_invalid"):
         _ADAPTER.validate_python({**_MISP, "type": None})
+
+
+def _misp(**overrides: object) -> MispCollectorConfig:
+    values: dict[str, object] = {
+        "name": "misp",
+        "type": "misp",
+        "misp_url": "https://misp.example.org",
+        "api_key_env": "CIRCL_KEY",
+        "secret_env": "MISP",
+        "target_bucket": "intel",
+    }
+    values.update(overrides)
+    config = _ADAPTER.validate_python(values)
+    assert isinstance(config, MispCollectorConfig)
+    return config
+
+
+def test_settings_reads_api_keys_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STIX_HUB_COLLECTOR_API_KEYS__CIRCL_KEY", "k")
+    loaded = Settings()  # type: ignore[call-arg]
+    assert loaded.COLLECTOR_API_KEYS["circl_key"].get_secret_value() == "k"
+
+
+def test_load_api_key_matches_case_insensitively() -> None:
+    assert load_api_key(_misp(), {"circl_key": SecretStr("k")}) == "k"
+
+
+def test_load_api_key_missing_raises() -> None:
+    with pytest.raises(RuntimeError, match="STIX_HUB_COLLECTOR_API_KEYS__CIRCL_KEY"):
+        load_api_key(_misp(), {})
+
+
+def test_load_api_key_empty_raises() -> None:
+    with pytest.raises(RuntimeError, match="no MISP API key"):
+        load_api_key(_misp(), {"circl_key": SecretStr("")})
+
+
+def test_validate_api_keys_ignores_taxii_collectors() -> None:
+    validate_collector_api_keys([_collector()], {})
+
+
+def test_validate_api_keys_fails_for_misp_without_key() -> None:
+    with pytest.raises(RuntimeError, match="'misp'"):
+        validate_collector_api_keys([_collector(), _misp()], {})
+
+
+def test_validate_api_keys_passes_with_key() -> None:
+    validate_collector_api_keys([_misp()], {"circl_key": SecretStr("k")})
+
+
+def test_warns_when_misp_targets_append_bucket(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        warn_misp_append_buckets(_BUCKETS, [_misp(), _collector()])
+    assert len(caplog.records) == 1
+    assert "'misp'" in caplog.records[0].getMessage()
+
+
+def test_no_warning_for_merge_bucket(caplog: pytest.LogCaptureFixture) -> None:
+    buckets = [BucketConfig(name="intel", mode=BucketMode.merge)]
+    with caplog.at_level(logging.WARNING):
+        warn_misp_append_buckets(buckets, [_misp()])
+    assert not caplog.records

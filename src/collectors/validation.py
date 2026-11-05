@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping
 
 from pydantic import SecretStr
@@ -6,9 +7,13 @@ from config import CollectorCredentials, settings
 from models.domain import (
     BaseCollectorConfig,
     BucketConfig,
+    BucketMode,
     CollectorConfig,
+    MispCollectorConfig,
     TaxiiCollectorConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def validate_collectors(
@@ -107,3 +112,60 @@ def validate_collector_secrets(
                 "secret; each collector needs its own"
             )
         owners[secret] = config.name
+
+
+def api_key_env_var(config: MispCollectorConfig) -> str:
+    return f"STIX_HUB_COLLECTOR_API_KEYS__{config.api_key_env.upper()}"
+
+
+def load_api_key(
+    config: MispCollectorConfig,
+    keys: Mapping[str, SecretStr] | None = None,
+) -> str:
+    """Return the MISP API key for ``config``, raising if unset or empty.
+
+    Keys come from ``Settings.COLLECTOR_API_KEYS`` (env var
+    ``STIX_HUB_COLLECTOR_API_KEYS__<api_key_env>``).
+    """
+    available = settings.COLLECTOR_API_KEYS if keys is None else keys
+    # pydantic-settings lower-cases the dict keys it reads from the environment.
+    found = available.get(config.api_key_env.lower())
+    if found is None or not found.get_secret_value():
+        raise RuntimeError(
+            f"Collector '{config.name}' has no MISP API key configured; set "
+            f"{api_key_env_var(config)}"
+        )
+    return found.get_secret_value()
+
+
+def validate_collector_api_keys(
+    collector_configs: list[CollectorConfig],
+    keys: Mapping[str, SecretStr] | None = None,
+) -> None:
+    """Fail fast unless every MISP collector has a non-empty API key."""
+    for config in collector_configs:
+        if isinstance(config, MispCollectorConfig):
+            load_api_key(config, keys)
+
+
+def warn_misp_append_buckets(
+    bucket_configs: list[BucketConfig],
+    collector_configs: list[CollectorConfig],
+) -> None:
+    """Warn about MISP collectors targeting append buckets.
+
+    Republished events are re-submitted in full, which duplicates entities in
+    an append bucket; merge mode is recommended.
+    """
+    modes = {bucket.name: bucket.mode for bucket in bucket_configs}
+    for config in collector_configs:
+        if (
+            isinstance(config, MispCollectorConfig)
+            and modes.get(config.target_bucket) == BucketMode.append
+        ):
+            logger.warning(
+                "MISP collector '%s' targets append-mode bucket '%s'; republished "
+                "events will create duplicates. Merge mode is recommended.",
+                config.name,
+                config.target_bucket,
+            )
