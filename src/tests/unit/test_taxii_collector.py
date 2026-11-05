@@ -9,10 +9,11 @@ from typing import Any
 import httpx
 import pytest
 
+from collectors.base import RegistrationError
 from collectors.platform_client import PlatformClient
 from collectors.retry import RetriesExhausted, with_retries
 from collectors.taxii_client import TAXII_MEDIA_TYPE, TaxiiClient
-from collectors.taxii_collector import RegistrationError, TaxiiCollector
+from collectors.taxii_collector import TaxiiCollector
 from models.domain import TaxiiCollectorConfig
 
 API_ROOT = "https://taxii.example.com/api/"

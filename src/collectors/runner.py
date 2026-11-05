@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 import httpx
 from pydantic import SecretStr
 
+from collectors.base import BaseCollector
 from collectors.platform_client import PlatformClient
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
@@ -36,7 +37,7 @@ class CollectorRunner:
 
     def __init__(
         self,
-        collectors: list[TaxiiCollector],
+        collectors: list[BaseCollector],
         stop_event: threading.Event,
         on_fatal: FatalHandler | None = None,
         clients: Mapping[str, list[httpx.Client]] | None = None,
@@ -45,7 +46,7 @@ class CollectorRunner:
         self._stop_event = stop_event
         self._on_fatal = on_fatal
         self._clients = clients or {}
-        self._threads: list[tuple[TaxiiCollector, threading.Thread]] = []
+        self._threads: list[tuple[BaseCollector, threading.Thread]] = []
 
     @property
     def threads(self) -> list[threading.Thread]:
@@ -93,7 +94,7 @@ def create_runner(
     ``secrets`` to ``settings.COLLECTOR_SECRETS``.
     """
     stop_event = threading.Event()
-    collectors: list[TaxiiCollector] = []
+    collectors: list[BaseCollector] = []
     clients: dict[str, list[httpx.Client]] = {}
     for config in configs:
         if not isinstance(config, TaxiiCollectorConfig):
