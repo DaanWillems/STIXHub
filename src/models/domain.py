@@ -84,6 +84,9 @@ class CollectorConfig(BaseModel):
     remote_url: str
     remote_collection_id: str
     credentials_env: str | None = None
+    # Names the env var holding this collector's shared secret for the
+    # platform's /collectors API: STIX_HUB_COLLECTOR_SECRETS__<secret_env>.
+    secret_env: str = Field(min_length=1)
     target_bucket: str
     poll_interval: PositiveFloat = 300
     max_retries: PositiveInt = 3

@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 import uvicorn
 from collectors.runner import create_runner
-from collectors.validation import validate_collectors
+from collectors.validation import validate_collector_secrets, validate_collectors
 from config import load_platform_config, settings
 from database.database import db
 from database.repositories.bucket import DatabaseBucketRepository
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await db.create_tables()
     validate_roles(platform_config.buckets, platform_config.roles)
     validate_collectors(platform_config.buckets, platform_config.collectors)
+    validate_collector_secrets(platform_config.collectors)
     if settings.BUCKET_REPO_BACKEND == "database":
         async with db.get_session() as session:
             repo = DatabaseBucketRepository(session)

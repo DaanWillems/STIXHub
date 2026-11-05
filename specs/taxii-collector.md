@@ -77,6 +77,7 @@ collectors:
     remote_url: "https://cti.mitre.org/taxii/"                   # required
     remote_collection_id: "95ecc380-afe9-11e4-9b6c-751b66dd541e" # required
     credentials_env: "MITRE_TAXII"                               # optional; omit for unauth feeds
+    secret_env: "MITRE_ATTACK"                                   # required; platform API shared secret
     target_bucket: "Example collection"                          # required; must exist in buckets section
     poll_interval: 300                                           # seconds; default 300
     max_retries: 3                                               # default 3
@@ -93,12 +94,17 @@ The collector relies on the following platform endpoints (all to be implemented)
 | POST | `/collectors/{id}/objects` | Submit a page of STIX objects |
 | PUT | `/collectors/{id}/cursor` | Advance the cursor after a successful batch |
 
-These endpoints require **no authentication** — they are internal-only and protected by network boundaries (localhost).
+These endpoints require a per-collector shared secret, sent as `Authorization: Bearer <secret>`:
+
+- Each collector entry declares a required `secret_env` key. The secret is loaded through `Settings.COLLECTOR_SECRETS`, i.e. from `STIX_HUB_COLLECTOR_SECRETS__<secret_env>` (environment or `.env`); it never appears in YAML.
+- Startup fails if any configured collector has no (or an empty) secret, or if two collectors share a secret.
+- The secret identifies the collector. A missing or unknown secret gets `401`. Registering under another collector's name or into any bucket other than the collector's configured `target_bucket`, or submitting objects / updating the cursor of another collector's registration, gets `403`.
+- Secrets are compared in constant time.
 
 ## Architecture Notes
 
 - The collector thread is isolated from the asyncio event loop. It communicates with the platform exclusively via synchronous HTTP calls to localhost using `httpx.Client`.
-- This design provides a clean extraction seam: to run the collector as a separate service, change the base URL from `localhost` to a remote address and add authentication — no collector logic changes required.
+- This design provides a clean extraction seam: to run the collector as a separate service, change the base URL from `localhost` to a remote address — the collector already authenticates with its shared secret, so no collector logic changes are required.
 - Cursor state is stored in the database (via the platform API), so application restarts are safe.
 - Multiple collectors can be registered and run concurrently as independent threads, each polling a different remote collection.
 - The `taxii2-client` library is **not** used; TAXII 2.1 wire calls are made directly with synchronous `httpx.Client` using the appropriate `Accept: application/taxii+json;version=2.1` headers.
@@ -112,6 +118,7 @@ These endpoints require **no authentication** — they are internal-only and pro
 - [ ] Cursor advances (to `X-TAXII-Date-Added-Last`) only after a batch is accepted by the platform.
 - [ ] A collector restart does not re-ingest already-seen objects.
 - [ ] Remote authentication credentials are read from env vars; never appear in YAML or code.
+- [ ] Every request to the `/collectors` API is authenticated with the collector's own shared secret from env vars.
 - [ ] Transient errors are retried with exponential back-off; permanent failures (4xx) are logged and not retried.
 - [ ] Partial batch failures advance the cursor and log dropped objects; the poll continues.
 - [ ] On shutdown the lifespan waits up to `shutdown_timeout` seconds for each thread; warns and abandons if exceeded.

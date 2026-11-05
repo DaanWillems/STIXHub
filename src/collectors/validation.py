@@ -1,5 +1,7 @@
 from collections.abc import Mapping
 
+from pydantic import SecretStr
+
 from config import CollectorCredentials, settings
 from models.domain import BucketConfig, CollectorConfig
 
@@ -44,3 +46,59 @@ def load_credentials(
             f"{prefix}__USER and {prefix}__PASS"
         )
     return found.user, found.password.get_secret_value()
+
+
+def secret_env_var(config: CollectorConfig) -> str:
+    return f"STIX_HUB_COLLECTOR_SECRETS__{config.secret_env.upper()}"
+
+
+def find_secret(
+    config: CollectorConfig,
+    secrets: Mapping[str, SecretStr] | None = None,
+) -> str | None:
+    """Return the shared secret for ``config``, or ``None`` if it is unset/empty.
+
+    Secrets come from ``Settings.COLLECTOR_SECRETS`` (env var
+    ``STIX_HUB_COLLECTOR_SECRETS__<secret_env>``).
+    """
+    available = settings.COLLECTOR_SECRETS if secrets is None else secrets
+    # pydantic-settings lower-cases the dict keys it reads from the environment.
+    found = available.get(config.secret_env.lower())
+    if found is None or not found.get_secret_value():
+        return None
+    return found.get_secret_value()
+
+
+def load_secret(
+    config: CollectorConfig,
+    secrets: Mapping[str, SecretStr] | None = None,
+) -> str:
+    """Like :func:`find_secret`, but raises if the secret is not configured."""
+    secret = find_secret(config, secrets)
+    if secret is None:
+        raise RuntimeError(
+            f"Collector '{config.name}' has no shared secret configured; set "
+            f"{secret_env_var(config)}"
+        )
+    return secret
+
+
+def validate_collector_secrets(
+    collector_configs: list[CollectorConfig],
+    secrets: Mapping[str, SecretStr] | None = None,
+) -> None:
+    """Fail fast unless every collector has its own, non-empty shared secret.
+
+    Secrets identify the collector making a request, so two collectors may not
+    share one.
+    """
+    owners: dict[str, str] = {}
+    for config in collector_configs:
+        secret = load_secret(config, secrets)
+        other = owners.get(secret)
+        if other is not None:
+            raise RuntimeError(
+                f"Collectors '{other}' and '{config.name}' use the same shared "
+                "secret; each collector needs its own"
+            )
+        owners[secret] = config.name

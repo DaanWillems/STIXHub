@@ -24,11 +24,15 @@ collections:
 # credentials_env: "MITRE_TAXII" the collector reads
 # STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER and ..._PASS from the
 # environment (or .env). Omit credentials_env for open feeds.
+# Every collector authenticates to the platform's /collectors API with its own
+# shared secret: with secret_env: "MITRE_ATTACK" the secret is read from
+# STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK. Startup fails if it is unset.
 collectors:
  - name: mitre-attack
    remote_url: https://attack-taxii.mitre.org/api/v21/
    remote_collection_id: x-mitre-collection--1f5f1533-f617-4ca8-9ab4-6a02367fa019
    target_bucket: raw-intel
+   secret_env: MITRE_ATTACK
    poll_interval: 300     # seconds, default 300
    max_retries: 3         # default 3
    shutdown_timeout: 30   # seconds, default 30

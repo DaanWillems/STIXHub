@@ -1,6 +1,12 @@
 import pytest
+from pydantic import SecretStr
 
-from collectors.validation import load_credentials, validate_collectors
+from collectors.validation import (
+    load_credentials,
+    load_secret,
+    validate_collector_secrets,
+    validate_collectors,
+)
 from config import CollectorCredentials, Settings
 from models.domain import BucketConfig, BucketMode, CollectorConfig, PlatformConfig
 
@@ -11,6 +17,7 @@ def _collector(**overrides: object) -> CollectorConfig:
         "remote_url": "https://taxii.example.com/api/",
         "remote_collection_id": "abc",
         "target_bucket": "intel",
+        "secret_env": "FEED",
     }
     values.update(overrides)
     return CollectorConfig.model_validate(values)
@@ -74,3 +81,54 @@ def test_settings_reads_collector_credentials_from_env(
         "alice",
         "s3cret",
     )
+
+
+def test_secret_env_is_required() -> None:
+    with pytest.raises(ValueError, match="secret_env"):
+        CollectorConfig.model_validate(
+            {
+                "name": "feed",
+                "remote_url": "https://taxii.example.com/api/",
+                "remote_collection_id": "abc",
+                "target_bucket": "intel",
+            }
+        )
+
+
+def test_load_secret_matches_key_case_insensitively() -> None:
+    assert load_secret(_collector(), {"feed": SecretStr("s")}) == "s"
+
+
+def test_load_secret_missing_raises() -> None:
+    with pytest.raises(RuntimeError, match="STIX_HUB_COLLECTOR_SECRETS__FEED"):
+        load_secret(_collector(), {})
+
+
+def test_load_secret_empty_raises() -> None:
+    with pytest.raises(RuntimeError, match="no shared secret"):
+        load_secret(_collector(), {"feed": SecretStr("")})
+
+
+def test_validate_collector_secrets_accepts_distinct_secrets() -> None:
+    validate_collector_secrets(
+        [_collector(), _collector(name="other", secret_env="OTHER")],
+        {"feed": SecretStr("a"), "other": SecretStr("b")},
+    )
+
+
+def test_validate_collector_secrets_rejects_shared_secret() -> None:
+    with pytest.raises(RuntimeError, match="same shared secret"):
+        validate_collector_secrets(
+            [_collector(), _collector(name="other", secret_env="OTHER")],
+            {"feed": SecretStr("a"), "other": SecretStr("a")},
+        )
+
+
+def test_settings_reads_collector_secrets_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK", "s3cret")
+
+    secrets = Settings().COLLECTOR_SECRETS
+
+    assert load_secret(_collector(secret_env="MITRE_ATTACK"), secrets) == "s3cret"

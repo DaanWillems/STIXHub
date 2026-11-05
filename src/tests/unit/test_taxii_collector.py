@@ -17,6 +17,7 @@ from models.domain import CollectorConfig
 
 API_ROOT = "https://taxii.example.com/api/"
 PLATFORM = "http://platform"
+PLATFORM_SECRET = "platform-secret"
 OBJECTS_PATH = "/api/collections/coll-1/objects/"
 FIXED_NOW = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -52,6 +53,7 @@ class FakePlatform:
     fail_ids: set[str] = field(default_factory=set)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == f"Bearer {PLATFORM_SECRET}"
         path = request.url.path
         if path == "/collectors/register":
             if self.register_status != 200:
@@ -109,6 +111,7 @@ def _collector(
         remote_url=API_ROOT,
         remote_collection_id="coll-1",
         target_bucket="intel",
+        secret_env="FEED",
         max_retries=max_retries,
     )
     taxii_client = TaxiiClient(
@@ -118,7 +121,9 @@ def _collector(
         auth=auth,
     )
     platform_client = PlatformClient(
-        httpx.Client(transport=httpx.MockTransport(platform.handle)), PLATFORM
+        httpx.Client(transport=httpx.MockTransport(platform.handle)),
+        PLATFORM,
+        PLATFORM_SECRET,
     )
     return TaxiiCollector(
         config,
