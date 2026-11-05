@@ -20,7 +20,7 @@ T = TypeVar("T")
 REGISTRATION_ATTEMPTS = 10
 
 
-def _utcnow() -> datetime:
+def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
@@ -41,7 +41,7 @@ class BaseCollector(ABC):
         platform: PlatformClient,
         stop_event: threading.Event | None = None,
         backoff_base: float = 1.0,
-        clock: Callable[[], datetime] = _utcnow,
+        clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self.config = config
         self._platform = platform
@@ -85,6 +85,7 @@ class BaseCollector(ABC):
                 f"platform (target bucket '{self.config.target_bucket}'): {detail}"
             ) from exc
         self.collector_id = registration.id
+        self._check_cursor(registration.cursor)
         self.cursor = registration.cursor
         logger.info(
             "[%s] registered as collector %s, cursor=%s",
@@ -92,6 +93,12 @@ class BaseCollector(ABC):
             self.collector_id,
             self.cursor,
         )
+
+    def _check_cursor(self, cursor: str | None) -> None:
+        """Hook for subclasses to validate the stored cursor at registration.
+
+        Raise ``RegistrationError`` if the cursor is unusable. No-op by default.
+        """
 
     @abstractmethod
     def poll_once(self) -> int:

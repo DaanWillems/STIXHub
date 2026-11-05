@@ -3,7 +3,7 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from collectors.base import BaseCollector, _utcnow
+from collectors.base import BaseCollector, utcnow
 from collectors.platform_client import PlatformClient
 from collectors.retry import CollectorStopped
 from collectors.taxii_client import TaxiiClient, TaxiiPage
@@ -30,7 +30,7 @@ class TaxiiCollector(BaseCollector):
         platform: PlatformClient,
         stop_event: threading.Event | None = None,
         backoff_base: float = 1.0,
-        clock: Callable[[], datetime] = _utcnow,
+        clock: Callable[[], datetime] = utcnow,
     ) -> None:
         super().__init__(config, platform, stop_event, backoff_base, clock)
         self.config: TaxiiCollectorConfig = config
