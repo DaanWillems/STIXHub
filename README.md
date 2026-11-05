@@ -12,13 +12,13 @@ STIXHub is currently not production ready, but does already support a number of 
 :white_check_mark: Reading from collections \
 :white_check_mark: Storage system driven by the bucket design \
 :white_check_mark: Append only buckets\
-:white_check_mark: Collector service to read external TAXII 2.1 endpoints\
-:white_check_mark: Two-way sync with MISP instances
+:white_check_mark: Collector service to read external TAXII 2.1 endpoints
 
 **The following features are planned:**\
 \
 :heavy_exclamation_mark: Bucket merge mode for deduplication\
 :heavy_exclamation_mark: User management and RBAC on buckets\
+:heavy_exclamation_mark: Collector service to read external MISP endpoints\
 :heavy_exclamation_mark: Pipelines to move and transform data between buckets\
 :heavy_exclamation_mark: Multi node deployments to enable horizontal scaling
 
@@ -33,14 +33,6 @@ STIXHub is currently not production ready, but does already support a number of 
 # Getting started
 ## Docker deploy
 ## Development environment
-### Debugging in VS Code
-`.vscode/launch.json` has two configurations: **STIXHub: server** (the API) and **STIXHub: worker** (the pipeline worker). Their environment is in `.vscode/stixhub.env`.
-
-1. Create a virtual environment and run `pip install -e ".[dev]"` in it.
-2. Select it in VS Code (*Python: Select Interpreter*).
-3. Start PostgreSQL: `docker compose up -d postgres`.
-4. Open *Run and Debug*, pick **STIXHub: server** or **STIXHub: worker**, and press F5. To debug both at once, start one and then the other.
-
 
 ## Philosophy
 STIX and TAXII are the most widely accepted standards for CTI. They are vendor agnostic, and machine readable, enabling rapid integration with products and quick exchange of information. 
@@ -157,26 +149,7 @@ collectors:
 
 Remote credentials never go in the YAML. They are read through the platform settings (environment or `.env`): for `credentials_env: MITRE_TAXII` set `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER` and `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__PASS`.
 
-Collectors reach the platform's internal API at `STIX_HUB_PLATFORM_INTERNAL_URL` (default `http://127.0.0.1:8000`). Each collector authenticates with its own secret, which must be set for every collector in `STIX_HUB_COLLECTOR_SECRETS__<NAME>` (with `-` in the name written as `_`, at least 16 characters; startup fails otherwise) and can only use the bucket its config names: a TAXII collector writes its `target_bucket`, a MISP connector writes its pull bucket and reads its push bucket.
-
-### MISP connector
-A MISP connector syncs a bucket pair with a MISP instance, converting with [misp-stix](https://github.com/MISP/misp-stix). **Pull** ingests new and edited MISP events into a bucket; **push** turns the reports and groupings of another bucket (with everything they reference) into MISP events. Both directions can run against the same instance: intel pulled from a MISP instance is never pushed back to it, and STIXHub only writes events it created itself, until somebody edits them in MISP. See [specs/misp-connector.md](specs/misp-connector.md) for the details.
-
-```yaml
-collectors:
-  - name: circl-misp
-    type: misp
-    url: https://misp.example.org
-    credentials_env: CIRCL_MISP        # STIX_HUB_MISP_CREDENTIALS__CIRCL_MISP__API_KEY
-    pull:                              # optional
-      target_bucket: raw-intel
-      published_only: true             # default true
-      initial_lookback_days: 30        # default 30
-    push:                              # optional
-      source_bucket: refined-intel     # must differ from pull.target_bucket
-      distribution: 0                  # MISP distribution of new events (default 0)
-      publish: false                   # publish events after writing (default false)
-```
+Collectors reach the platform's internal API at `STIX_HUB_PLATFORM_INTERNAL_URL` (default `http://127.0.0.1:8000`).
 
 ```mermaid
 sequenceDiagram

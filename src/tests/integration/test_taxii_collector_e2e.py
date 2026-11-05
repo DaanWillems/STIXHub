@@ -18,11 +18,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.testclient import TestClient
 
+from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector, taxii_timestamp
-from models.domain import TaxiiCollectorConfig
-from tests.platform_support import Platform, make_platform
+from dependencies import get_bucket_repo, get_collector_repo
+from models.domain import Bucket, CollectorConfig
+from database.repositories.bucket import InMemoryBucketRepository
+from database.repositories.collector import InMemoryCollectorRepository
+from routes.collectors import collectors_router
 
 API_ROOT = "http://taxii.test/api/"
 COLLECTION_ID = "91a7b528-80eb-42ed-a74d-c6fbd5a26116"
@@ -120,9 +124,22 @@ def taxii_server() -> Iterator[tuple[MockTaxiiServer, TestClient]]:
 # --- platform under test ----------------------------------------------------
 
 
+@dataclass
+class Platform:
+    client: TestClient
+    buckets: InMemoryBucketRepository
+
+
 @pytest.fixture
 async def platform() -> Platform:
-    return await make_platform(BUCKET)
+    buckets = InMemoryBucketRepository()
+    await buckets.save(Bucket(name=BUCKET))
+    collectors = InMemoryCollectorRepository()
+    app = FastAPI()
+    app.include_router(collectors_router)
+    app.dependency_overrides[get_bucket_repo] = lambda: buckets
+    app.dependency_overrides[get_collector_repo] = lambda: collectors
+    return Platform(TestClient(app, base_url="http://platform"), buckets)
 
 
 def _make_collector(
@@ -131,7 +148,7 @@ def _make_collector(
     stop_event: threading.Event | None = None,
     auth: tuple[str, str] = CREDENTIALS,
 ) -> TaxiiCollector:
-    config = TaxiiCollectorConfig(
+    config = CollectorConfig(
         name="external-feed",
         remote_url=API_ROOT,
         remote_collection_id=COLLECTION_ID,
@@ -139,11 +156,10 @@ def _make_collector(
         poll_interval=3600,
         shutdown_timeout=5,
     )
-    platform.enroll(config)
     return TaxiiCollector(
         config,
         TaxiiClient(taxii_client, API_ROOT, COLLECTION_ID, auth=auth),
-        platform.api(config.name),
+        PlatformClient(platform.client, "http://platform"),
         stop_event=stop_event,
         backoff_base=0,
     )

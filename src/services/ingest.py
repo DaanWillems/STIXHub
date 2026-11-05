@@ -28,6 +28,16 @@ async def ingest_objects(
     bucket_id: int = bucket.id
     now = datetime.now(UTC)
 
+    # Objects that reference other objects (e.g. relationships) are processed
+    # after everything else so their refs can be rewritten to platform IDs.
+    referencing = [
+        i
+        for i, raw_obj in enumerate(raw_objects)
+        if raw_obj.get("type") in stix_processor.REF_PROPERTIES
+    ]
+    referencing_set = set(referencing)
+    plain = [i for i in range(len(raw_objects)) if i not in referencing_set]
+
     results: dict[int, StixEntity | TaxiiStatusRef] = {}
     id_map: dict[str, str] = {}
 
@@ -55,33 +65,23 @@ async def ingest_objects(
             object=processed.object,
         )
 
-    # Some IDs derive from refs (a relationship's source and target, a
-    # connection's addresses), so an object is processed after the objects in
-    # this batch that it references. Refs to objects outside the batch may
-    # point at objects already stored in the bucket under their original ID;
-    # refs found nowhere are kept as-is.
-    refs = {
-        index: stix_processor.unresolved_refs(raw_obj) if "type" in raw_obj else []
-        for index, raw_obj in enumerate(raw_objects)
-    }
-    batch_ids = {raw_obj.get("id") for raw_obj in raw_objects}
-    external = {ref for ids in refs.values() for ref in ids if ref not in batch_ids}
-    if external:
-        id_map.update(await repo.resolve_stix_ids(bucket_id, sorted(external)))
+    for index in plain:
+        _process(index)
 
-    done: set[str] = set()
-    pending = list(range(len(raw_objects)))
-    while pending:
-        ready = [
-            index
-            for index in pending
-            if all(ref in done or ref not in batch_ids for ref in refs[index])
-        ]
-        # A reference cycle: process what is left with the refs known so far.
-        for index in ready or pending:
-            _process(index)
-            done.add(raw_objects[index].get("id", ""))
-        pending = [index for index in pending if index not in results]
+    # Refs not satisfied by this batch may point at objects already stored in
+    # the bucket under their original ID; refs found nowhere are kept as-is.
+    missing = {
+        ref
+        for index in referencing
+        if "type" in raw_objects[index]
+        for ref in stix_processor.unresolved_refs(raw_objects[index])
+        if ref not in id_map
+    }
+    if missing:
+        id_map.update(await repo.resolve_stix_ids(bucket_id, sorted(missing)))
+
+    for index in referencing:
+        _process(index)
 
     successes: list[TaxiiStatusRef] = []
     failures: list[TaxiiStatusRef] = []

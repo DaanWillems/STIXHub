@@ -14,8 +14,6 @@ services:
       STIX_HUB_DATABASE_ENGINE_ECHO: "false"
       STIX_HUB_PLATFORM_CONFIG: /config/platform_config.yaml
       STIX_HUB_ADMIN_API_KEY: "changeme"
-      # One secret per collector in platform_config.yaml (at least 16 characters).
-      STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK: "change-me-mitre-attack"
     volumes:
       - ./platform_config.yaml:/config/platform_config.yaml:ro
     depends_on:

@@ -49,9 +49,6 @@ docker compose up -d
 - `STIX_HUB_ADMIN_API_KEY` — key for the `/users` admin endpoints
 - `STIX_HUB_WORKER_POLL_INTERVAL` (default: 5) — seconds the pipeline worker sleeps when nothing is pending
 - `STIX_HUB_WORKER_BATCH_SIZE` (default: 10) — entities taken from a source per batch
-- `STIX_HUB_COLLECTOR_CREDENTIALS__<ENV>__USER` / `__PASS` — TAXII collector credentials
-- `STIX_HUB_MISP_CREDENTIALS__<ENV>__API_KEY` — MISP connector API keys
-- `STIX_HUB_COLLECTOR_SECRETS__<NAME>` — secret each collector shares with the platform's internal API (required per collector, `-` in the name as `_`, at least 16 characters)
 
 ## Architecture
 
@@ -62,7 +59,7 @@ The application lives entirely in `src/`. It is a **FastAPI + async SQLAlchemy**
 - **Buckets** — logical storage containers for STIX entities. Entities in a bucket can coexist with the same STIX ID (append mode) or be merged (merge mode).
 - **STIX Entities** — raw STIX 2.1 objects stored as JSONB in PostgreSQL (`stix_entity_model` table), each associated with a bucket.
 - **TAXII 2.1 Collections** — HTTP endpoints that expose bucket data following the TAXII 2.1 spec. A collection can be read-only or write-only (not both).
-- **Collectors** — processes that register with the platform and push STIX objects into buckets via REST: TAXII collectors, and MISP connectors that also push a bucket's reports to MISP (see `specs/misp-connector.md`).
+- **Collectors** — external processes that register with the platform and push STIX objects into buckets via REST.
 - **Pipelines** — workers that poll buckets for new entities, apply filters/transforms, and write results to another bucket. Each pipeline runs as a role and only resolves refs from buckets that role can read (see `specs/pipelines.md`).
 
 ### Layer structure
@@ -72,7 +69,6 @@ src/
   __main__.py       # entry point: --mode server | worker | server-worker
   config.py         # pydantic-settings Settings (env prefix: stix_hub_) + platform config loading
   permissions.py    # effective bucket permissions for a set of roles
-  collector_auth.py # collector secrets and the one bucket each registration may use
   dependencies.py   # FastAPI dependencies (repos, current user, platform config)
   server/           # FastAPI app factory + lifespan (create tables, provision buckets, collectors)
   worker/           # pipeline worker loop
@@ -84,10 +80,10 @@ src/
     domain.py       # Pydantic/dataclass domain + config models, TAXII response models
   processors/stix.py  # deterministic platform IDs/values per STIX type (incl. TLP markings)
   services/ingest.py  # shared ingestion path for TAXII writes and collectors
-  collectors/       # collector runner, TAXII collector; misp/ holds the MISP connector
+  collectors/       # TAXII collector runner
   pipeline/         # PipelineExecutor, PipelineManager, refs.py (ref <-> value resolution)
   merging/          # merge strategies (WIP)
-  routes/           # taxii2, users, collectors, misp_sync routers
+  routes/           # taxii2, users, collectors routers
   tests/            # unit/ and integration/
 ```
 
@@ -95,6 +91,5 @@ src/
 
 - `pytest.ini_options` in the root `pyproject.toml` sets `pythonpath = [".", "src"]` and `asyncio_mode = "auto"`, so async test functions work without decorators.
 - Tests use `InMemoryBucketRepository` rather than a real DB; `DATABASE_USE_NULLPOOL=true` is used when a real DB connection is needed in tests to avoid connection pool issues.
-- STIX IDs are generated deterministically by the platform on ingestion (the original ID is preserved in `other_stix_ids`). Facts (SCOs, malware, indicators, ...) get an ID from their value; occurrences (reports, groupings, notes, observed-data, sightings, `x-*`) from their original ID.
-- There are no migrations: the schema comes from `create_all`, so schema changes mean recreating the database.
+- STIX IDs are intended to be generated deterministically by the platform on ingestion (the original ID is preserved in a separate field). This is required for the pipeline deduplication/locking mechanism.
 - mypy is configured with `strict = true`; keep all new code fully typed.

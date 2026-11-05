@@ -93,7 +93,7 @@ The collector relies on the following platform endpoints (all to be implemented)
 | POST | `/collectors/{id}/objects` | Submit a page of STIX objects |
 | PUT | `/collectors/{id}/cursor` | Advance the cursor after a successful batch |
 
-Every call carries the collector's secret as a bearer token, and a collector may only use its configured `target_bucket` (see [misp-connector.md](misp-connector.md#access-to-the-platform)). The secret comes from `STIX_HUB_COLLECTOR_SECRETS__<NAME>` and is required.
+These endpoints require **no authentication** — they are internal-only and protected by network boundaries (localhost).
 
 ## Architecture Notes
 
