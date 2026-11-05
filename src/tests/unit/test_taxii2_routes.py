@@ -369,10 +369,10 @@ async def test_write_unimplemented_type_is_failure(
     writable_repo: InMemoryBucketRepository,
 ) -> None:
     sro = {
-        "type": "language-content",
-        "id": "language-content--abc",
+        "type": "sighting",
+        "id": "sighting--abc",
         "spec_version": "2.1",
-        "object_ref": "indicator--x",
+        "sighting_of_ref": "indicator--x",
     }
 
     async with AsyncClient(
@@ -384,7 +384,7 @@ async def test_write_unimplemented_type_is_failure(
     body = response.json()
     assert body["status"] == "complete_with_errors"
     assert body["failure_count"] == 1
-    assert "language-content" in body["failures"][0]["message"]
+    assert "sighting" in body["failures"][0]["message"]
 
 
 async def test_write_partial_success(writable_repo: InMemoryBucketRepository) -> None:

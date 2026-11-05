@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from models.domain import Bucket, ProcessingStatus, StixEntity
 from database.repositories.bucket import DatabaseBucketRepository
@@ -69,20 +69,6 @@ async def test_add_entities(bucket_repo: DatabaseBucketRepository):
     stored = await bucket_repo.get_entities(bucket_id=bucket.id)
     assert len(stored) == 2
     assert {e.stix_id for e in stored} == {"indicator--1", "indicator--2"}
-
-
-async def test_add_entities_stores_long_custom_type(
-    bucket_repo: DatabaseBucketRepository,
-) -> None:
-    bucket = await bucket_repo.save(Bucket(name="test-bucket"))
-    assert bucket.id is not None
-    entity = make_entity(bucket.id, "x-misp-galaxy-cluster--1")
-    entity.type = "x-misp-galaxy-cluster-with-a-long-custom-name"
-
-    await bucket_repo.add_entities(bucket.id, [entity])
-
-    [stored] = await bucket_repo.get_entities(bucket_id=bucket.id)
-    assert stored.type == entity.type
 
 
 async def test_add_entities_raises_when_bucket_not_found(
@@ -339,43 +325,6 @@ async def test_find_by_refs_scoped_to_buckets_and_type(
     assert await bucket_repo.find_by_refs([readable.id], "identity", []) == {}
 
 
-async def test_get_entities_after(bucket_repo: DatabaseBucketRepository) -> None:
-    bucket = await bucket_repo.save(Bucket(name="after-bucket"))
-    assert bucket.id is not None
-    await bucket_repo.add_entities(
-        bucket.id, [make_entity(bucket.id, f"indicator--{n}") for n in range(3)]
-    )
-    first, *_ = await bucket_repo.get_entities(bucket_id=bucket.id)
-
-    after = await bucket_repo.get_entities_after(bucket.id, first.id, limit=1)
-
-    assert [e.stix_id for e in after] == ["indicator--1"]
-
-
-async def test_find_latest_by_refs_prefers_newest(
-    bucket_repo: DatabaseBucketRepository,
-) -> None:
-    bucket = await bucket_repo.save(Bucket(name="latest-bucket"))
-    other = await bucket_repo.save(Bucket(name="latest-other"))
-    assert bucket.id is not None and other.id is not None
-    old, new, elsewhere = (
-        make_entity(bucket.id, "ipv4-addr--platform"),
-        make_entity(bucket.id, "ipv4-addr--platform"),
-        make_entity(other.id, "ipv4-addr--platform"),
-    )
-    old.other_stix_ids, new.other_stix_ids = ["ipv4-addr--a"], ["ipv4-addr--b"]
-    await bucket_repo.add_entities(bucket.id, [old, new])
-    await bucket_repo.add_entities(other.id, [elsewhere])
-
-    found = await bucket_repo.find_latest_by_refs(
-        bucket.id, ["ipv4-addr--platform", "ipv4-addr--a", "ipv4-addr--x"]
-    )
-
-    assert found["ipv4-addr--platform"].other_stix_ids == ["ipv4-addr--b"]
-    assert found["ipv4-addr--a"].other_stix_ids == ["ipv4-addr--a"]
-    assert "ipv4-addr--x" not in found
-
-
 async def test_worker_process_batch_writes_sink_and_marks_source(
     bucket_repo: DatabaseBucketRepository,
 ):
@@ -422,41 +371,3 @@ async def test_worker_process_batch_writes_sink_and_marks_source(
     assert source_entity.status == ProcessingStatus.processed
     assert source_entity.pipeline is None
     assert source_entity.object["labels"] == []
-
-
-async def test_entities_after_never_pass_a_row_still_being_committed(
-    engine: AsyncEngine,
-) -> None:
-    """A slow transaction takes a lower id than a fast one but commits later;
-    a reader must not return the fast row (and move its cursor past the slow
-    one) until the slow one has committed."""
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
-    async with sessions() as setup, setup.begin():
-        bucket = await DatabaseBucketRepository(setup).save(Bucket(name="in-flight"))
-    assert bucket.id is not None
-    bucket_id: int = bucket.id
-
-    async def visible() -> list[str]:
-        async with sessions() as reader, reader.begin():
-            found = await DatabaseBucketRepository(reader).get_entities_after(
-                bucket_id, 0, 10
-            )
-            return [e.stix_id for e in found]
-
-    async with sessions() as slow:
-        await slow.begin()
-        await DatabaseBucketRepository(slow).add_entities(
-            bucket_id, [make_entity(bucket_id, "indicator--slow")]
-        )
-        async with sessions() as fast, fast.begin():
-            await DatabaseBucketRepository(fast).add_entities(
-                bucket_id, [make_entity(bucket_id, "indicator--fast")]
-            )
-
-        assert await visible() == []
-
-        await slow.commit()
-
-    assert await visible() == ["indicator--slow", "indicator--fast"]
-    async with sessions() as cleanup, cleanup.begin():
-        await DatabaseBucketRepository(cleanup).delete(bucket_id)

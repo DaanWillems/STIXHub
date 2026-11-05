@@ -9,7 +9,7 @@ import httpx
 from collectors.platform_client import PlatformClient
 from collectors.retry import CollectorStopped, RetriesExhausted, with_retries
 from collectors.taxii_client import TaxiiClient, TaxiiPage
-from models.domain import TaxiiCollectorConfig
+from models.domain import CollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class TaxiiCollector:
 
     def __init__(
         self,
-        config: TaxiiCollectorConfig,
+        config: CollectorConfig,
         taxii: TaxiiClient,
         platform: PlatformClient,
         stop_event: threading.Event | None = None,

@@ -1,18 +1,10 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Discriminator,
-    Field,
-    PositiveFloat,
-    PositiveInt,
-    Tag,
-)
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt
 
 
 class ProcessingStatus(str, Enum):
@@ -45,11 +37,9 @@ class CollectionConfig(BaseModel):
     can_write: bool
     bucket_name: str
 
-
 class PipelineBooleanType(str, Enum):
     AND = "and"
     OR = "or"
-
 
 class PipelineConditionType(str, Enum):
     eq = "eq"
@@ -61,12 +51,10 @@ class PipelineConditionType(str, Enum):
     contains = "contains"
     not_contains = "not_contains"
 
-
 class PipelineExpression(BaseModel):
     field: str
     type: PipelineConditionType
     value: str
-
 
 class PipelineCondition(BaseModel):
     """AND / OR group of sub-conditions, which may themselves be groups."""
@@ -74,16 +62,13 @@ class PipelineCondition(BaseModel):
     type: PipelineBooleanType
     condition: list["PipelineCondition | PipelineExpression"]
 
-
 PipelineCondition.model_rebuild()
-
 
 class PipelineStepConfig(BaseModel):
     action: str
     field: str
     value: str
     condition: PipelineCondition | PipelineExpression | None = None
-
 
 class PipelineConfig(BaseModel):
     name: str
@@ -94,15 +79,8 @@ class PipelineConfig(BaseModel):
     sinks: list[str]
     steps: list[PipelineStepConfig]
 
-
-# Collector names end up in creators ("collector:<name>") and registrations
-# ("<name>:push"), so they are restricted to a safe alphabet.
-CollectorName = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+$")]
-
-
-class TaxiiCollectorConfig(BaseModel):
-    type: Literal["taxii"] = "taxii"
-    name: CollectorName
+class CollectorConfig(BaseModel):
+    name: str = Field(min_length=1)
     remote_url: str
     remote_collection_id: str
     credentials_env: str | None = None
@@ -110,64 +88,6 @@ class TaxiiCollectorConfig(BaseModel):
     poll_interval: PositiveFloat = 300
     max_retries: PositiveInt = 3
     shutdown_timeout: PositiveFloat = 30
-
-
-class MispPullConfig(BaseModel):
-    target_bucket: str
-    published_only: bool = True
-    initial_lookback_days: PositiveInt = 30
-    tags: list[str] = Field(default_factory=list)
-    orgs: list[str] = Field(default_factory=list)
-    page_size: PositiveInt = 100
-
-
-class MispPushConfig(BaseModel):
-    source_bucket: str
-    exclude_creators: list[str] = Field(default_factory=list)
-    distribution: int = Field(default=0, ge=0, le=5)
-    sharing_group_id: int | None = None
-    publish: bool = False
-    # The internal API returns at most 1000 entities per page.
-    batch_size: int = Field(default=100, ge=1, le=1000)
-    # How long a report waits for objects it references to reach the bucket
-    # (e.g. while a pipeline is still copying them) before it is pushed anyway.
-    wait_for_refs_seconds: float = Field(default=120, ge=0)
-
-
-class MispConnectorConfig(BaseModel):
-    type: Literal["misp"]
-    name: CollectorName
-    url: str
-    credentials_env: str
-    # True, False, or the path to a CA bundle.
-    verify_tls: bool | str = True
-    poll_interval: PositiveFloat = 300
-    max_retries: PositiveInt = 3
-    shutdown_timeout: PositiveFloat = 30
-    pull: MispPullConfig | None = None
-    push: MispPushConfig | None = None
-
-    @property
-    def normalized_url(self) -> str:
-        """``url`` without a trailing slash, scheme and host lower-cased."""
-        scheme, sep, rest = self.url.rstrip("/").partition("://")
-        host, slash, path = rest.partition("/")
-        return f"{scheme.lower()}{sep}{host.lower()}{slash}{path}"
-
-
-def _collector_type(value: Any) -> str:
-    """Collectors without a ``type`` are TAXII collectors."""
-    found = (
-        value.get("type") if isinstance(value, dict) else getattr(value, "type", None)
-    )
-    return str(found or "taxii")
-
-
-CollectorConfig = Annotated[
-    Annotated[TaxiiCollectorConfig, Tag("taxii")]
-    | Annotated[MispConnectorConfig, Tag("misp")],
-    Discriminator(_collector_type),
-]
 
 
 class PlatformConfig(BaseModel):
@@ -209,79 +129,6 @@ class Collector:
     name: str
     bucket_id: int
     cursor: str | None = None
-
-
-class MispEventOrigin(str, Enum):
-    """Who owns a MISP event: STIXHub only ever writes events it owns."""
-
-    misp = "misp"
-    stixhub = "stixhub"
-
-
-@dataclass
-class MispEventSync:
-    """What STIXHub knows about one event of one MISP instance.
-
-    Records are shared by every connector of that instance, so one
-    connector's pushes are never pulled back by another.
-    """
-
-    instance: str  # the instance's normalised URL
-    event_uuid: str
-    origin: MispEventOrigin
-    # The event's MISP timestamp at the last sync; None while a write is pending.
-    misp_timestamp: int | None = None
-    # The MISP organisation STIXHub creates the event as (its API key's), so
-    # any connector can tell a pending write of STIXHub's from someone else's.
-    creator_org: str | None = None
-
-
-class MispEventSyncUpdate(BaseModel):
-    origin: MispEventOrigin
-    misp_timestamp: int | None = None
-    creator_org: str | None = None
-
-
-class MispEventRecord(BaseModel):
-    """A sync record as the internal API returns it to a connector."""
-
-    event_uuid: str
-    origin: MispEventOrigin
-    misp_timestamp: int | None = None
-    creator_org: str | None = None
-
-
-class MispEventSyncLookup(BaseModel):
-    event_uuids: list[str]
-
-
-class MispEventSyncLookupResponse(BaseModel):
-    events: list[MispEventRecord]
-
-
-class CollectorEntity(BaseModel):
-    """An entity as the internal collector API hands it to a connector."""
-
-    id: int
-    stix_id: str
-    type: str
-    creator: str
-    platform_created: datetime
-    other_stix_ids: list[str]
-    object: dict[str, Any]
-
-
-class CollectorEntityPage(BaseModel):
-    entities: list[CollectorEntity]
-
-
-class CollectorEntityLookup(BaseModel):
-    refs: list[str]
-
-
-class CollectorEntityLookupResponse(BaseModel):
-    # Keyed by the ref that was looked up.
-    entities: dict[str, CollectorEntity]
 
 
 class CollectorRegisterRequest(BaseModel):
@@ -388,7 +235,6 @@ class TaxiiWriteStatusModel(BaseModel):
     successes: list[TaxiiStatusRef] = Field(default_factory=list)
     failures: list[TaxiiStatusRef] = Field(default_factory=list)
     pendings: list[TaxiiStatusRef] = Field(default_factory=list)
-
 
 @dataclass
 class RoleConfig:

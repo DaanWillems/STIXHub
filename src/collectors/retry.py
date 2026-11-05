@@ -9,10 +9,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-class TransientError(Exception):
-    """A failure worth retrying, raised by clients that don't use ``httpx``."""
-
-
 class CollectorStopped(Exception):
     """Raised when a stop was requested while the collector was waiting."""
 
@@ -23,7 +19,7 @@ class RetriesExhausted(Exception):
 
 def is_transient(exc: BaseException) -> bool:
     """Network errors/timeouts and HTTP 5xx are transient; everything else is not."""
-    if isinstance(exc, (httpx.TransportError, TransientError)):
+    if isinstance(exc, httpx.TransportError):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code >= 500
