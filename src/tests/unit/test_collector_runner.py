@@ -2,11 +2,14 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
+import certifi
 import httpx
 import pytest
 from pydantic import SecretStr
 
+from collectors.misp_collector import MispCollector
 from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner, create_runner
 from collectors.taxii_client import TaxiiClient
@@ -124,14 +127,62 @@ def test_create_runner_fails_fast_on_missing_secret() -> None:
         create_runner([_config()], "http://p", secrets={})
 
 
-def test_create_runner_rejects_misp_collector_until_supported() -> None:
-    misp = MispCollectorConfig(
+def _misp_config(**kwargs: Any) -> MispCollectorConfig:
+    return MispCollectorConfig(
         name="circl",
         type="misp",
         misp_url="https://misp.example.org",
         api_key_env="CIRCL",
         secret_env="CIRCL",
         target_bucket="intel",
+        **kwargs,
     )
-    with pytest.raises(TypeError, match="unsupported type 'misp'"):
-        create_runner([misp], "http://p", secrets={"circl": SecretStr("s")})
+
+
+def test_create_runner_builds_misp_collector() -> None:
+    runner = create_runner(
+        [_misp_config(timeout=7, verify_tls=False)],
+        "http://p",
+        secrets={"circl": SecretStr("s")},
+        api_keys={"circl": SecretStr("k")},
+    )
+    assert isinstance(runner._collectors[0], MispCollector)
+    misp_http, platform_http = runner._clients["circl"]
+    assert misp_http.timeout.read == 7
+    assert platform_http.timeout.read == 30.0
+    assert not misp_http._transport._pool._ssl_context.check_hostname  # type: ignore[attr-defined]
+
+
+def test_create_runner_misp_uses_ca_bundle() -> None:
+    cafile = certifi.where()
+    runner = create_runner(
+        [_misp_config(ca_bundle=cafile)],
+        "http://p",
+        secrets={"circl": SecretStr("s")},
+        api_keys={"circl": SecretStr("k")},
+    )
+    misp_http = runner._clients["circl"][0]
+    assert misp_http._transport._pool._ssl_context.check_hostname  # type: ignore[attr-defined]
+
+
+def test_create_runner_fails_fast_on_missing_misp_api_key() -> None:
+    with pytest.raises(RuntimeError, match="COLLECTOR_API_KEYS__CIRCL"):
+        create_runner(
+            [_misp_config()],
+            "http://p",
+            secrets={"circl": SecretStr("s")},
+            api_keys={},
+        )
+
+
+def test_runner_stop_closes_misp_clients() -> None:
+    runner = create_runner(
+        [_misp_config()],
+        "http://p",
+        secrets={"circl": SecretStr("s")},
+        api_keys={"circl": SecretStr("k")},
+    )
+    runner._collectors[0].run = lambda on_fatal=None: None  # type: ignore[method-assign]
+    runner.start()
+    runner.stop()
+    assert all(c.is_closed for c in runner._clients["circl"])
