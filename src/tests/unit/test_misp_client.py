@@ -149,3 +149,29 @@ def test_get_event_not_found_and_malformed() -> None:
         _client(lambda r: httpx.Response(404)).get_event("u1")
     with pytest.raises(MispResponseError):
         _client(lambda r: httpx.Response(200, json={"Event": []})).get_event("u1")
+
+
+def test_list_published_rejects_bad_page_size() -> None:
+    with pytest.raises(ValueError):
+        _client(lambda r: httpx.Response(200, json={"response": []})).list_published(
+            1, 10, page_size=0
+        )
+
+
+def test_list_published_repeated_page_does_not_loop() -> None:
+    client = _client(
+        lambda r: httpx.Response(200, json={"response": [_event("a", 1), _event("b", 1)]})
+    )
+    with pytest.raises(MispResponseError):
+        client.list_published(1, 10, page_size=2)
+
+
+def test_get_event_quotes_uuid() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"Event": {}})
+
+    _client(handler).get_event("a/../b")
+    assert requests[0].url.raw_path == b"/events/view/a%2F..%2Fb"

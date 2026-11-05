@@ -1,6 +1,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -46,6 +47,8 @@ class MispClient:
         :class:`CollectorStopped` is raised. Raises ``httpx.HTTPStatusError`` on
         4xx/5xx and :class:`MispResponseError` on a malformed body.
         """
+        if page_size < 1:
+            raise ValueError("page_size must be at least 1")
         found: dict[str, MispEventSummary] = {}
         page = 1
         while True:
@@ -69,10 +72,14 @@ class MispClient:
             )
             response.raise_for_status()
             entries = self._parse_listing(response)
+            before = len(found)
             for entry in entries:
                 found.setdefault(entry.uuid, entry)
             if len(entries) < page_size:
                 break
+            if len(found) == before:
+                # A full page with nothing new: the server is ignoring ``page``.
+                raise MispResponseError("MISP restSearch returned a repeated page")
             page += 1
         return sorted(found.values(), key=lambda e: (e.publish_timestamp, e.uuid))
 
@@ -83,7 +90,7 @@ class MispClient:
         not visible) and :class:`MispResponseError` on a malformed body.
         """
         response = self._http.get(
-            f"{self._base_url}/events/view/{uuid}", headers=self._headers
+            f"{self._base_url}/events/view/{quote(uuid, safe='')}", headers=self._headers
         )
         response.raise_for_status()
         event = _json(response).get("Event")
