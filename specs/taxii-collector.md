@@ -13,7 +13,7 @@ A collector service that periodically scrapes a remote TAXII 2.1 collection and 
 
 ## Non-Goals
 
-- Support for non-TAXII ingestion protocols (MISP, CSV, etc.) — those are separate collectors.
+- Support for non-TAXII ingestion protocols (CSV, etc.) — those are separate collectors. MISP has its own spec: [misp-collector.md](misp-collector.md).
 - Real-time streaming; polling on a configurable interval is sufficient.
 - Transformation or filtering of objects before insertion — that is the responsibility of pipelines.
 - Runtime reconfiguration of poll interval or other settings — a restart is required.
@@ -74,6 +74,7 @@ A collector service that periodically scrapes a remote TAXII 2.1 collection and 
 ```yaml
 collectors:
   - name: "mitre-attack"                                          # required; used for registration
+    type: taxii                                                  # optional; default taxii
     remote_url: "https://cti.mitre.org/taxii/"                   # required
     remote_collection_id: "95ecc380-afe9-11e4-9b6c-751b66dd541e" # required
     credentials_env: "MITRE_TAXII"                               # optional; omit for unauth feeds
