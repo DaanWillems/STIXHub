@@ -1,4 +1,5 @@
 import logging
+import ssl
 import threading
 import time
 from collections.abc import Callable
@@ -11,7 +12,7 @@ from pydantic import SecretStr
 
 from collectors.misp_collector import MispCollector
 from collectors.platform_client import PlatformClient
-from collectors.runner import CollectorRunner, create_runner
+from collectors.runner import CollectorRunner, _misp_verify, create_runner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
 from models.domain import MispCollectorConfig, TaxiiCollectorConfig
@@ -150,7 +151,6 @@ def test_create_runner_builds_misp_collector() -> None:
     misp_http, platform_http = runner._clients["circl"]
     assert misp_http.timeout.read == 7
     assert platform_http.timeout.read == 30.0
-    assert not misp_http._transport._pool._ssl_context.check_hostname  # type: ignore[attr-defined]
 
 
 def test_create_runner_misp_uses_ca_bundle() -> None:
@@ -161,8 +161,28 @@ def test_create_runner_misp_uses_ca_bundle() -> None:
         secrets={"circl": SecretStr("s")},
         api_keys={"circl": SecretStr("k")},
     )
-    misp_http = runner._clients["circl"][0]
-    assert misp_http._transport._pool._ssl_context.check_hostname  # type: ignore[attr-defined]
+    assert isinstance(_misp_verify(_misp_config(ca_bundle=cafile)), ssl.SSLContext)
+    assert len(runner._clients["circl"]) == 2
+
+
+def test_misp_verify_false_warns(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        assert _misp_verify(_misp_config(verify_tls=False)) is False
+    assert "verify_tls disabled" in caplog.text
+
+
+def test_misp_verify_default_is_true() -> None:
+    assert _misp_verify(_misp_config()) is True
+
+
+def test_create_runner_rejects_missing_ca_bundle() -> None:
+    with pytest.raises(RuntimeError, match="circl.*cannot load ca_bundle"):
+        create_runner(
+            [_misp_config(ca_bundle="/nonexistent/ca.pem")],
+            "http://p",
+            secrets={"circl": SecretStr("s")},
+            api_keys={"circl": SecretStr("k")},
+        )
 
 
 def test_create_runner_fails_fast_on_missing_misp_api_key() -> None:

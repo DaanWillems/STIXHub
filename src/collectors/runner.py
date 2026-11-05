@@ -86,7 +86,19 @@ class CollectorRunner:
 
 def _misp_verify(config: MispCollectorConfig) -> ssl.SSLContext | bool:
     if config.ca_bundle is not None:
-        return ssl.create_default_context(cafile=config.ca_bundle)
+        try:
+            return ssl.create_default_context(cafile=config.ca_bundle)
+        except (OSError, ssl.SSLError) as exc:
+            raise RuntimeError(
+                f"Collector '{config.name}' cannot load ca_bundle "
+                f"'{config.ca_bundle}': {exc}"
+            ) from exc
+    if not config.verify_tls:
+        logger.warning(
+            "MISP collector '%s' has verify_tls disabled; TLS certificates "
+            "will not be verified.",
+            config.name,
+        )
     return config.verify_tls
 
 
@@ -109,10 +121,10 @@ def create_runner(
     clients: dict[str, list[httpx.Client]] = {}
     for config in configs:
         secret = load_secret(config, secrets)
-        platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
-        platform = PlatformClient(platform_http, platform_url, secret)
         if isinstance(config, TaxiiCollectorConfig):
             auth = load_credentials(config, credentials)
+            platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+            platform = PlatformClient(platform_http, platform_url, secret)
             taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
             clients[config.name] = [taxii_http, platform_http]
             collectors.append(
@@ -127,9 +139,10 @@ def create_runner(
             )
         elif isinstance(config, MispCollectorConfig):
             api_key = load_api_key(config, api_keys)
-            misp_http = httpx.Client(
-                timeout=config.timeout, verify=_misp_verify(config)
-            )
+            verify = _misp_verify(config)
+            platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+            platform = PlatformClient(platform_http, platform_url, secret)
+            misp_http = httpx.Client(timeout=config.timeout, verify=verify)
             clients[config.name] = [misp_http, platform_http]
             collectors.append(
                 MispCollector(
