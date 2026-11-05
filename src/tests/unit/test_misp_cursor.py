@@ -99,3 +99,30 @@ def test_advance_does_not_mutate() -> None:
     cursor.advance("b", 2, OVERLAP)
     assert cursor == MispCursor(1, {"a": 1})
     assert json.loads(cursor.serialize()) == {"publish_timestamp": 1, "recent": {"a": 1}}
+
+
+def test_advance_keeps_entry_exactly_at_window_floor() -> None:
+    cursor = MispCursor(0).advance("edge", 6_400, OVERLAP).advance("new", 10_000, OVERLAP)
+    assert cursor.recent == {"edge": 6_400, "new": 10_000}
+    assert "edge" not in cursor.advance("newer", 10_001, OVERLAP).recent
+
+
+def test_advance_drops_late_event_older_than_window() -> None:
+    cursor = MispCursor(10_000).advance("ancient", 1_000, OVERLAP)
+    assert cursor.publish_timestamp == 10_000
+    assert cursor.recent == {}
+
+
+def test_republished_event_replaces_recorded_timestamp() -> None:
+    cursor = MispCursor(0).advance("a", 5_000, OVERLAP).advance("a", 5_100, OVERLAP)
+    assert cursor.recent == {"a": 5_100}
+    assert not cursor.should_skip("a", 5_000)
+
+
+def test_parse_ignores_unknown_keys() -> None:
+    assert MispCursor.parse('{"publish_timestamp": 5, "extra": 1}') == MispCursor(5, {})
+
+
+def test_initial_with_zero_lookback_window_starts_at_now() -> None:
+    cursor = MispCursor.initial(now=50_000, initial_lookback_days=0, overlap_seconds=OVERLAP)
+    assert cursor.window_start(OVERLAP) == 50_000
