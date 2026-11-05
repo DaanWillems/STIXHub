@@ -1,11 +1,13 @@
 import logging
-import math
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TypeVar
 
 import httpx
+
+_DELTA_SECONDS = re.compile(r"[0-9]+", re.ASCII)
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +44,9 @@ def retry_after_seconds(exc: BaseException) -> float | None:
     if value is None:
         return None
     value = value.strip()
-    try:
+    if _DELTA_SECONDS.fullmatch(value):
         seconds = float(value)
-    except ValueError:
+    else:
         try:
             when = parsedate_to_datetime(value)
         except (TypeError, ValueError):
@@ -52,7 +54,7 @@ def retry_after_seconds(exc: BaseException) -> float | None:
         if when.tzinfo is None:
             when = when.replace(tzinfo=UTC)
         seconds = (when - datetime.now(UTC)).total_seconds()
-    if math.isnan(seconds) or seconds < 0:
+    if seconds < 0:
         return None
     return seconds
 

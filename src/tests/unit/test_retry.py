@@ -39,7 +39,7 @@ def test_retry_after_seconds_parses_http_date() -> None:
     assert 20 < value <= 30
 
 
-@pytest.mark.parametrize("header", ["soon", "-5", "nan", ""])
+@pytest.mark.parametrize("header", ["soon", "-5", "nan", "inf", "1e3", "1_0", ""])
 def test_retry_after_seconds_ignores_invalid(header: str) -> None:
     assert retry_after_seconds(_status_error(429, {"Retry-After": header})) is None
 
