@@ -1,8 +1,13 @@
 import logging
+import re
 from collections.abc import Callable
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import TypeVar
 
 import httpx
+
+_DELTA_SECONDS = re.compile(r"[0-9]+", re.ASCII)
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +23,40 @@ class RetriesExhausted(Exception):
 
 
 def is_transient(exc: BaseException) -> bool:
-    """Network errors/timeouts and HTTP 5xx are transient; everything else is not."""
+    """Network errors/timeouts, HTTP 5xx and 429 are transient; everything else is not."""
     if isinstance(exc, httpx.TransportError):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code >= 500
+        status = exc.response.status_code
+        return status >= 500 or status == 429
     return False
+
+
+def retry_after_seconds(exc: BaseException) -> float | None:
+    """Return the ``Retry-After`` delay of a 429 response, if present and valid.
+
+    Both the delta-seconds and HTTP-date forms are understood. Negative or
+    unparseable values yield ``None``.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError) or exc.response.status_code != 429:
+        return None
+    value = exc.response.headers.get("Retry-After")
+    if value is None:
+        return None
+    value = value.strip()
+    if _DELTA_SECONDS.fullmatch(value):
+        seconds = float(value)
+    else:
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        seconds = (when - datetime.now(UTC)).total_seconds()
+    if seconds < 0:
+        return None
+    return seconds
 
 
 def with_retries(
@@ -38,7 +71,8 @@ def with_retries(
     """Call ``fn``, retrying transient failures with exponential back-off.
 
     ``fn`` is attempted at most ``max_retries`` times; the delay between
-    attempts is ``base_delay * 2**n`` capped at ``max_delay``. ``wait(delay)``
+    attempts is ``base_delay * 2**n`` capped at ``max_delay``; a 429 response's
+    ``Retry-After`` replaces that delay (also capped at ``max_delay``). ``wait(delay)``
     sleeps and returns ``True`` if a stop was requested (``threading.Event.wait``
     semantics), in which case :class:`CollectorStopped` is raised.
 
@@ -55,6 +89,9 @@ def with_retries(
                     f"{description} failed after {max_retries} attempts: {exc!r}"
                 ) from exc
             delay = min(base_delay * 2 ** (attempt - 1), max_delay)
+            retry_after = retry_after_seconds(exc)
+            if retry_after is not None:
+                delay = min(retry_after, max_delay)
             logger.warning(
                 "%s failed (attempt %d/%d): %r; retrying in %.1fs",
                 description,

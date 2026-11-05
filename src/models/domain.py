@@ -1,10 +1,19 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    Tag,
+    model_validator,
+)
 
 
 class ProcessingStatus(str, Enum):
@@ -79,11 +88,10 @@ class PipelineConfig(BaseModel):
     sinks: list[str]
     steps: list[PipelineStepConfig]
 
-class CollectorConfig(BaseModel):
+class BaseCollectorConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1)
-    remote_url: str
-    remote_collection_id: str
-    credentials_env: str | None = None
     # Names the env var holding this collector's shared secret for the
     # platform's /collectors API: STIX_HUB_COLLECTOR_SECRETS__<secret_env>.
     secret_env: str = Field(min_length=1)
@@ -91,6 +99,50 @@ class CollectorConfig(BaseModel):
     poll_interval: PositiveFloat = 300
     max_retries: PositiveInt = 3
     shutdown_timeout: PositiveFloat = 30
+
+
+class TaxiiCollectorConfig(BaseCollectorConfig):
+    type: Literal["taxii"] = "taxii"
+    remote_url: str
+    remote_collection_id: str
+    credentials_env: str | None = None
+
+
+class MispCollectorConfig(BaseCollectorConfig):
+    type: Literal["misp"]
+    misp_url: str
+    # Names the env var holding the MISP API key:
+    # STIX_HUB_COLLECTOR_API_KEYS__<api_key_env>.
+    api_key_env: str = Field(min_length=1)
+    verify_tls: bool = True
+    ca_bundle: str | None = None
+    timeout: PositiveFloat = 120
+    initial_lookback_days: PositiveInt | None = None
+    overlap_seconds: int = Field(default=3600, ge=0)
+    tags: list[str] = Field(default_factory=list)
+    org: str | None = None
+    page_size: PositiveInt = 100
+    submit_batch_size: PositiveInt = 500
+
+    @model_validator(mode="after")
+    def _check_tls(self) -> "MispCollectorConfig":
+        if self.ca_bundle is not None and not self.verify_tls:
+            raise ValueError("ca_bundle and verify_tls: false are mutually exclusive")
+        return self
+
+
+def _collector_type(value: Any) -> str:
+    """Discriminator: collectors without a ``type`` are TAXII collectors."""
+    if isinstance(value, dict):
+        return str(value.get("type", "taxii"))
+    return str(getattr(value, "type", "taxii"))
+
+
+CollectorConfig = Annotated[
+    Annotated[TaxiiCollectorConfig, Tag("taxii")]
+    | Annotated[MispCollectorConfig, Tag("misp")],
+    Discriminator(_collector_type),
+]
 
 
 class PlatformConfig(BaseModel):

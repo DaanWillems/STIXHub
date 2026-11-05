@@ -1,18 +1,22 @@
 import logging
 import os
 import signal
+import ssl
 import threading
 from collections.abc import Callable, Mapping
 
 import httpx
 from pydantic import SecretStr
 
+from collectors.base import BaseCollector
+from collectors.misp_client import MispClient
+from collectors.misp_collector import MispCollector
 from collectors.platform_client import PlatformClient
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from collectors.validation import load_credentials, load_secret
+from collectors.validation import load_api_key, load_credentials, load_secret
 from config import CollectorCredentials
-from models.domain import CollectorConfig
+from models.domain import CollectorConfig, MispCollectorConfig, TaxiiCollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +40,7 @@ class CollectorRunner:
 
     def __init__(
         self,
-        collectors: list[TaxiiCollector],
+        collectors: list[BaseCollector],
         stop_event: threading.Event,
         on_fatal: FatalHandler | None = None,
         clients: Mapping[str, list[httpx.Client]] | None = None,
@@ -45,7 +49,7 @@ class CollectorRunner:
         self._stop_event = stop_event
         self._on_fatal = on_fatal
         self._clients = clients or {}
-        self._threads: list[tuple[TaxiiCollector, threading.Thread]] = []
+        self._threads: list[tuple[BaseCollector, threading.Thread]] = []
 
     @property
     def threads(self) -> list[threading.Thread]:
@@ -80,35 +84,76 @@ class CollectorRunner:
                 client.close()
 
 
+def _misp_verify(config: MispCollectorConfig) -> ssl.SSLContext | bool:
+    if config.ca_bundle is not None:
+        try:
+            return ssl.create_default_context(cafile=config.ca_bundle)
+        except (OSError, ssl.SSLError) as exc:
+            raise RuntimeError(
+                f"Collector '{config.name}' cannot load ca_bundle "
+                f"'{config.ca_bundle}': {exc}"
+            ) from exc
+    if not config.verify_tls:
+        logger.warning(
+            "MISP collector '%s' has verify_tls disabled; TLS certificates "
+            "will not be verified.",
+            config.name,
+        )
+    return config.verify_tls
+
+
 def create_runner(
     configs: list[CollectorConfig],
     platform_url: str,
     on_fatal: FatalHandler | None = terminate_process,
     credentials: Mapping[str, CollectorCredentials] | None = None,
     secrets: Mapping[str, SecretStr] | None = None,
+    api_keys: Mapping[str, SecretStr] | None = None,
 ) -> CollectorRunner:
     """Build collectors from config. Raises if credentials or secrets are missing.
 
     ``credentials`` defaults to ``settings.COLLECTOR_CREDENTIALS`` and
-    ``secrets`` to ``settings.COLLECTOR_SECRETS``.
+    ``secrets`` to ``settings.COLLECTOR_SECRETS`` and ``api_keys`` to
+    ``settings.COLLECTOR_API_KEYS``.
     """
     stop_event = threading.Event()
-    collectors: list[TaxiiCollector] = []
+    collectors: list[BaseCollector] = []
     clients: dict[str, list[httpx.Client]] = {}
     for config in configs:
-        auth = load_credentials(config, credentials)
         secret = load_secret(config, secrets)
-        taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
-        platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
-        clients[config.name] = [taxii_http, platform_http]
-        collectors.append(
-            TaxiiCollector(
-                config,
-                TaxiiClient(
-                    taxii_http, config.remote_url, config.remote_collection_id, auth
-                ),
-                PlatformClient(platform_http, platform_url, secret),
-                stop_event=stop_event,
+        if isinstance(config, TaxiiCollectorConfig):
+            auth = load_credentials(config, credentials)
+            platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+            platform = PlatformClient(platform_http, platform_url, secret)
+            taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+            clients[config.name] = [taxii_http, platform_http]
+            collectors.append(
+                TaxiiCollector(
+                    config,
+                    TaxiiClient(
+                        taxii_http, config.remote_url, config.remote_collection_id, auth
+                    ),
+                    platform,
+                    stop_event=stop_event,
+                )
             )
-        )
+        elif isinstance(config, MispCollectorConfig):
+            api_key = load_api_key(config, api_keys)
+            verify = _misp_verify(config)
+            platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
+            platform = PlatformClient(platform_http, platform_url, secret)
+            misp_http = httpx.Client(timeout=config.timeout, verify=verify)
+            clients[config.name] = [misp_http, platform_http]
+            collectors.append(
+                MispCollector(
+                    config,
+                    MispClient(misp_http, config.misp_url, api_key),
+                    platform,
+                    stop_event=stop_event,
+                )
+            )
+        else:
+            raise TypeError(
+                f"Collector '{config.name}' has unsupported type '{config.type}'"
+            )
     return CollectorRunner(collectors, stop_event, on_fatal, clients)

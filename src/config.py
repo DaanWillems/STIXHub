@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # keyed by a collector's `secret_env`, e.g.
     # STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK. Keys are lower-cased.
     COLLECTOR_SECRETS: dict[str, SecretStr] = Field(default_factory=dict)
+    # MISP API keys keyed by a MISP collector's `api_key_env`, e.g.
+    # STIX_HUB_COLLECTOR_API_KEYS__CIRCL_MISP_KEY. Keys are lower-cased.
+    COLLECTOR_API_KEYS: dict[str, SecretStr] = Field(default_factory=dict)
 
 
 settings = Settings()

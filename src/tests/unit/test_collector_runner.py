@@ -1,21 +1,25 @@
 import logging
+import ssl
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
+import certifi
 import httpx
 import pytest
 from pydantic import SecretStr
 
+from collectors.misp_collector import MispCollector
 from collectors.platform_client import PlatformClient
-from collectors.runner import CollectorRunner, create_runner
+from collectors.runner import CollectorRunner, _misp_verify, create_runner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from models.domain import CollectorConfig
+from models.domain import MispCollectorConfig, TaxiiCollectorConfig
 
 
-def _config(name: str = "feed", shutdown_timeout: float = 5) -> CollectorConfig:
-    return CollectorConfig(
+def _config(name: str = "feed", shutdown_timeout: float = 5) -> TaxiiCollectorConfig:
+    return TaxiiCollectorConfig(
         name=name,
         remote_url="https://taxii.example.com/api/",
         remote_collection_id="coll-1",
@@ -33,7 +37,7 @@ def _platform_handler(request: httpx.Request) -> httpx.Response:
 
 
 def _collector(
-    config: CollectorConfig,
+    config: TaxiiCollectorConfig,
     stop: threading.Event,
     taxii_handler: httpx.MockTransport,
 ) -> TaxiiCollector:
@@ -122,3 +126,83 @@ def test_create_runner_fails_fast_on_missing_credentials() -> None:
 def test_create_runner_fails_fast_on_missing_secret() -> None:
     with pytest.raises(RuntimeError, match="COLLECTOR_SECRETS__FEED"):
         create_runner([_config()], "http://p", secrets={})
+
+
+def _misp_config(**kwargs: Any) -> MispCollectorConfig:
+    return MispCollectorConfig(
+        name="circl",
+        type="misp",
+        misp_url="https://misp.example.org",
+        api_key_env="CIRCL",
+        secret_env="CIRCL",
+        target_bucket="intel",
+        **kwargs,
+    )
+
+
+def test_create_runner_builds_misp_collector() -> None:
+    runner = create_runner(
+        [_misp_config(timeout=7, verify_tls=False)],
+        "http://p",
+        secrets={"circl": SecretStr("s")},
+        api_keys={"circl": SecretStr("k")},
+    )
+    assert isinstance(runner._collectors[0], MispCollector)
+    misp_http, platform_http = runner._clients["circl"]
+    assert misp_http.timeout.read == 7
+    assert platform_http.timeout.read == 30.0
+
+
+def test_create_runner_misp_uses_ca_bundle() -> None:
+    cafile = certifi.where()
+    runner = create_runner(
+        [_misp_config(ca_bundle=cafile)],
+        "http://p",
+        secrets={"circl": SecretStr("s")},
+        api_keys={"circl": SecretStr("k")},
+    )
+    assert isinstance(_misp_verify(_misp_config(ca_bundle=cafile)), ssl.SSLContext)
+    assert len(runner._clients["circl"]) == 2
+
+
+def test_misp_verify_false_warns(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        assert _misp_verify(_misp_config(verify_tls=False)) is False
+    assert "verify_tls disabled" in caplog.text
+
+
+def test_misp_verify_default_is_true() -> None:
+    assert _misp_verify(_misp_config()) is True
+
+
+def test_create_runner_rejects_missing_ca_bundle() -> None:
+    with pytest.raises(RuntimeError, match="circl.*cannot load ca_bundle"):
+        create_runner(
+            [_misp_config(ca_bundle="/nonexistent/ca.pem")],
+            "http://p",
+            secrets={"circl": SecretStr("s")},
+            api_keys={"circl": SecretStr("k")},
+        )
+
+
+def test_create_runner_fails_fast_on_missing_misp_api_key() -> None:
+    with pytest.raises(RuntimeError, match="COLLECTOR_API_KEYS__CIRCL"):
+        create_runner(
+            [_misp_config()],
+            "http://p",
+            secrets={"circl": SecretStr("s")},
+            api_keys={},
+        )
+
+
+def test_runner_stop_closes_misp_clients() -> None:
+    runner = create_runner(
+        [_misp_config()],
+        "http://p",
+        secrets={"circl": SecretStr("s")},
+        api_keys={"circl": SecretStr("k")},
+    )
+    runner._collectors[0].run = lambda on_fatal=None: None  # type: ignore[method-assign]
+    runner.start()
+    runner.stop()
+    assert all(c.is_closed for c in runner._clients["circl"])

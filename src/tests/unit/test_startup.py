@@ -1,6 +1,16 @@
-import pytest
+from pathlib import Path
 
-from models.domain import Bucket, BucketConfig, BucketMode
+import pytest
+import yaml
+from pydantic import TypeAdapter
+
+from models.domain import (
+    Bucket,
+    BucketConfig,
+    BucketMode,
+    CollectorConfig,
+    MispCollectorConfig,
+)
 from database.repositories.bucket import InMemoryBucketRepository
 from routes.taxii2 import provision_buckets
 
@@ -71,3 +81,19 @@ async def test_provision_multiple_buckets() -> None:
     b = await repo.get(bucket_name="bucket-b")
     assert a.mode == BucketMode.append
     assert b.mode == BucketMode.merge
+
+
+def test_platform_config_misp_example_is_valid() -> None:
+    """The commented MISP example in platform_config.yaml parses once enabled."""
+    root = Path(__file__).resolve().parents[3]
+    lines = (root / "platform_config.yaml").read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(" # - name: "))
+    block = []
+    for line in lines[start:]:
+        if not line.startswith(" #"):
+            break
+        block.append(line.replace(" # ", " ", 1))
+    raw = yaml.safe_load("\n".join(block))
+    configs = [TypeAdapter(CollectorConfig).validate_python(c) for c in raw]
+    assert isinstance(configs[0], MispCollectorConfig)
+    assert configs[0].name == "circl-misp"

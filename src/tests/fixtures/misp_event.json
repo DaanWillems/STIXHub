@@ -1,0 +1,28 @@
+{
+  "Event": {
+    "uuid": "5f3c1b2e-1111-4222-8333-444455556666",
+    "info": "Test event",
+    "date": "2024-01-02",
+    "timestamp": "1704190000",
+    "publish_timestamp": "1704190100",
+    "published": true,
+    "threat_level_id": "2",
+    "analysis": "2",
+    "distribution": "0",
+    "Orgc": {"uuid": "5f3c1b2e-1111-4222-8333-444455556667", "name": "ORGC"},
+    "Org": {"uuid": "5f3c1b2e-1111-4222-8333-444455556667", "name": "ORGC"},
+    "Attribute": [
+      {
+        "uuid": "5f3c1b2e-1111-4222-8333-444455556668",
+        "type": "ip-dst",
+        "category": "Network activity",
+        "value": "1.2.3.4",
+        "to_ids": true,
+        "timestamp": "1704190000",
+        "distribution": "0",
+        "comment": ""
+      }
+    ],
+    "Tag": [{"name": "tlp:green"}]
+  }
+}

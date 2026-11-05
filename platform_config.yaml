@@ -36,6 +36,23 @@ collectors:
    poll_interval: 300     # seconds, default 300
    max_retries: 3         # default 3
    shutdown_timeout: 30   # seconds, default 30
+ # A MISP collector pulls published events and converts them to STIX. The MISP
+ # API key is read from STIX_HUB_COLLECTOR_API_KEYS__<api_key_env>. A merge-mode
+ # target bucket is recommended.
+ # - name: circl-misp
+ #   type: misp
+ #   misp_url: https://misp.example.org
+ #   api_key_env: CIRCL_MISP
+ #   target_bucket: raw-intel
+ #   secret_env: CIRCL_MISP
+ #   verify_tls: true             # or ca_bundle: /path/to/ca.pem (not both with false)
+ #   timeout: 120                 # seconds, default 120
+ #   initial_lookback_days: 30    # omit to ingest all history
+ #   overlap_seconds: 3600        # default 3600
+ #   tags: []                     # only events with these tags
+ #   org: null                    # only events from this organisation
+ #   page_size: 100               # default 100
+ #   submit_batch_size: 500       # default 500
 
 roles:
   - name: analyst

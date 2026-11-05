@@ -50,6 +50,7 @@ docker compose up -d
 - `STIX_HUB_WORKER_POLL_INTERVAL` (default: 5) — seconds the pipeline worker sleeps when nothing is pending
 - `STIX_HUB_WORKER_BATCH_SIZE` (default: 10) — entities taken from a source per batch
 - `STIX_HUB_COLLECTOR_SECRETS__<SECRET_ENV>` — shared secret each collector (by its `secret_env`) uses as a bearer token for the `/collectors` API; required for every configured collector
+- `STIX_HUB_COLLECTOR_API_KEYS__<API_KEY_ENV>` — MISP API key for each `type: misp` collector (by its `api_key_env`); startup fails if it is missing or empty
 
 ## Architecture
 
