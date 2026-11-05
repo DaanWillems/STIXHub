@@ -21,7 +21,8 @@ dependencies = [
     "asyncpg",
     "uvicorn",
     "pyyaml",
-    "httpx"
+    "httpx",
+    "misp-stix==2026.10.12"
 ]
 
 [project.optional-dependencies]
@@ -45,3 +46,7 @@ warn_return_any = true
 warn_unused_configs = true
 strict = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["misp_stix_converter.*", "stix2.*", "pymisp.*"]
+ignore_missing_imports = true
