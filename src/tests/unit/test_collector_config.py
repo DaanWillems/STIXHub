@@ -228,3 +228,31 @@ def test_platform_config_parses_mixed_collectors() -> None:
         TaxiiCollectorConfig,
         MispCollectorConfig,
     ]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"timeout": 0},
+        {"page_size": 0},
+        {"submit_batch_size": 0},
+        {"initial_lookback_days": 0},
+        {"overlap_seconds": -1},
+        {"api_key_env": ""},
+    ],
+)
+def test_misp_rejects_invalid_values(override: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        _ADAPTER.validate_python({**_MISP, **override})
+
+
+def test_misp_requires_misp_url_and_api_key_env() -> None:
+    for key in ("misp_url", "api_key_env"):
+        values = {k: v for k, v in _MISP.items() if k != key}
+        with pytest.raises(ValueError, match=key):
+            _ADAPTER.validate_python(values)
+
+
+def test_explicit_null_type_rejected() -> None:
+    with pytest.raises(ValueError, match="union_tag_invalid"):
+        _ADAPTER.validate_python({**_MISP, "type": None})

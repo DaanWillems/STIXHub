@@ -11,7 +11,7 @@ from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner, create_runner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from models.domain import TaxiiCollectorConfig
+from models.domain import MispCollectorConfig, TaxiiCollectorConfig
 
 
 def _config(name: str = "feed", shutdown_timeout: float = 5) -> TaxiiCollectorConfig:
@@ -122,3 +122,16 @@ def test_create_runner_fails_fast_on_missing_credentials() -> None:
 def test_create_runner_fails_fast_on_missing_secret() -> None:
     with pytest.raises(RuntimeError, match="COLLECTOR_SECRETS__FEED"):
         create_runner([_config()], "http://p", secrets={})
+
+
+def test_create_runner_rejects_misp_collector_until_supported() -> None:
+    misp = MispCollectorConfig(
+        name="circl",
+        type="misp",
+        misp_url="https://misp.example.org",
+        api_key_env="CIRCL",
+        secret_env="CIRCL",
+        target_bucket="intel",
+    )
+    with pytest.raises(TypeError, match="unsupported type 'misp'"):
+        create_runner([misp], "http://p", secrets={"circl": SecretStr("s")})
