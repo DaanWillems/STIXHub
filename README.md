@@ -152,7 +152,7 @@ Remote credentials never go in the YAML. They are read through the platform sett
 
 Collectors reach the platform's internal API at `STIX_HUB_PLATFORM_INTERNAL_URL` (default `http://127.0.0.1:8000`).
 
-Each collector authenticates to that API with its own shared secret, sent as `Authorization: Bearer <secret>`. For `secret_env: MITRE_ATTACK` set `STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK`. The platform refuses to start if a configured collector has no secret or two collectors share one. The secret identifies the collector: a collector can only register under its own name and only submit objects or move the cursor for its own registration (`401` for a missing/unknown secret, `403` for another collector's resources).
+Each collector authenticates to that API with its own shared secret, sent as `Authorization: Bearer <secret>`. For `secret_env: MITRE_ATTACK` set `STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK`. The platform refuses to start if a configured collector has no secret or two collectors share one. The secret identifies the collector: a collector can only register under its own name into its configured `target_bucket`, and only submit objects or move the cursor for its own registration (`401` for a missing/unknown secret, `403` for another collector's resources).
 
 ```mermaid
 sequenceDiagram

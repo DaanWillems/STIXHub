@@ -98,7 +98,7 @@ These endpoints require a per-collector shared secret, sent as `Authorization: B
 
 - Each collector entry declares a required `secret_env` key. The secret is loaded through `Settings.COLLECTOR_SECRETS`, i.e. from `STIX_HUB_COLLECTOR_SECRETS__<secret_env>` (environment or `.env`); it never appears in YAML.
 - Startup fails if any configured collector has no (or an empty) secret, or if two collectors share a secret.
-- The secret identifies the collector. A missing or unknown secret gets `401`. Registering under another collector's name, or submitting objects / updating the cursor of another collector's registration, gets `403`.
+- The secret identifies the collector. A missing or unknown secret gets `401`. Registering under another collector's name or into any bucket other than the collector's configured `target_bucket`, or submitting objects / updating the cursor of another collector's registration, gets `403`.
 - Secrets are compared in constant time.
 
 ## Architecture Notes

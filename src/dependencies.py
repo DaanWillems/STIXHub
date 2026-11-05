@@ -12,7 +12,7 @@ from pydantic import SecretStr
 from collectors.validation import find_secret
 from config import settings
 from models.domain import User
-from models.domain import PlatformConfig
+from models.domain import CollectorConfig, PlatformConfig
 from database.repositories.bucket import (
     BucketRepository,
     DatabaseBucketRepository,
@@ -85,8 +85,8 @@ async def require_collector(
     credentials: _CredentialsDep,
     platform_config: Annotated[PlatformConfig, Depends(get_platform_config)],
     secrets: Annotated[Mapping[str, SecretStr], Depends(get_collector_secrets)],
-) -> str:
-    """Authenticate a collector by its shared secret; returns the collector name.
+) -> CollectorConfig:
+    """Authenticate a collector by its shared secret; returns its config.
 
     The bearer token must equal the secret of a collector declared in the
     platform config (``STIX_HUB_COLLECTOR_SECRETS__<secret_env>``).
@@ -94,12 +94,12 @@ async def require_collector(
     if credentials is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     presented = credentials.credentials.encode()
-    authenticated: str | None = None
+    authenticated: CollectorConfig | None = None
     # Compare against every secret so timing does not reveal which matched.
     for config in platform_config.collectors:
         secret = find_secret(config, secrets)
         if secret is not None and hmac.compare_digest(presented, secret.encode()):
-            authenticated = config.name
+            authenticated = config
     if authenticated is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return authenticated

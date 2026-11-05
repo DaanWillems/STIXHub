@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 
 from pydantic import SecretStr
 
 from dependencies import (
+    _bearer,
     get_bucket_repo,
     get_collector_repo,
     get_collector_secrets,
@@ -153,6 +155,16 @@ async def test_register_under_another_collectors_name_returns_403() -> None:
     assert resp.status_code == 403
 
 
+async def test_register_into_another_bucket_returns_403() -> None:
+    client, bucket_repo = await _client()
+    await bucket_repo.save(Bucket(name="trusted"))
+    resp = client.post(
+        "/collectors/register",
+        json={"name": "c", "bucket_name": "trusted"},
+    )
+    assert resp.status_code == 403
+
+
 async def test_collector_cannot_act_on_another_collector() -> None:
     client, _ = await _client()
     collector = client.post(
@@ -180,12 +192,24 @@ async def test_collector_cannot_act_on_another_collector() -> None:
 
 async def test_unconfigured_secret_authenticates_nobody() -> None:
     client, _ = await _client()
-    client.app.dependency_overrides[get_collector_secrets] = lambda: {
-        "c": SecretStr("")
+    app = client.app
+    assert isinstance(app, FastAPI)
+    app.dependency_overrides[get_collector_secrets] = lambda: {
+        "c": SecretStr(""),
+        "other": SecretStr("secret-other"),
     }
+    token = ""
+    app.dependency_overrides[_bearer] = lambda: HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials=token
+    )
+
     resp = client.post(
-        "/collectors/register",
-        json={"name": "c", "bucket_name": BUCKET},
-        headers={"Authorization": "Bearer "},
+        "/collectors/register", json={"name": "c", "bucket_name": BUCKET}
     )
     assert resp.status_code == 401
+
+    token = "secret-other"
+    resp = client.post(
+        "/collectors/register", json={"name": "other", "bucket_name": BUCKET}
+    )
+    assert resp.status_code == 200
