@@ -3,7 +3,12 @@ from collections.abc import Mapping
 from pydantic import SecretStr
 
 from config import CollectorCredentials, settings
-from models.domain import BucketConfig, CollectorConfig
+from models.domain import (
+    BaseCollectorConfig,
+    BucketConfig,
+    CollectorConfig,
+    TaxiiCollectorConfig,
+)
 
 
 def validate_collectors(
@@ -25,7 +30,7 @@ def validate_collectors(
 
 
 def load_credentials(
-    config: CollectorConfig,
+    config: TaxiiCollectorConfig,
     credentials: Mapping[str, CollectorCredentials] | None = None,
 ) -> tuple[str, str] | None:
     """Look up HTTP Basic credentials for ``config.credentials_env``.
@@ -48,12 +53,12 @@ def load_credentials(
     return found.user, found.password.get_secret_value()
 
 
-def secret_env_var(config: CollectorConfig) -> str:
+def secret_env_var(config: BaseCollectorConfig) -> str:
     return f"STIX_HUB_COLLECTOR_SECRETS__{config.secret_env.upper()}"
 
 
 def find_secret(
-    config: CollectorConfig,
+    config: BaseCollectorConfig,
     secrets: Mapping[str, SecretStr] | None = None,
 ) -> str | None:
     """Return the shared secret for ``config``, or ``None`` if it is unset/empty.
@@ -70,7 +75,7 @@ def find_secret(
 
 
 def load_secret(
-    config: CollectorConfig,
+    config: BaseCollectorConfig,
     secrets: Mapping[str, SecretStr] | None = None,
 ) -> str:
     """Like :func:`find_secret`, but raises if the secret is not configured."""

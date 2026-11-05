@@ -1,5 +1,5 @@
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter
 
 from collectors.validation import (
     load_credentials,
@@ -8,10 +8,19 @@ from collectors.validation import (
     validate_collectors,
 )
 from config import CollectorCredentials, Settings
-from models.domain import BucketConfig, BucketMode, CollectorConfig, PlatformConfig
+from models.domain import (
+    BucketConfig,
+    BucketMode,
+    CollectorConfig,
+    MispCollectorConfig,
+    PlatformConfig,
+    TaxiiCollectorConfig,
+)
+
+_ADAPTER: TypeAdapter[CollectorConfig] = TypeAdapter(CollectorConfig)
 
 
-def _collector(**overrides: object) -> CollectorConfig:
+def _collector(**overrides: object) -> TaxiiCollectorConfig:
     values: dict[str, object] = {
         "name": "feed",
         "remote_url": "https://taxii.example.com/api/",
@@ -20,7 +29,9 @@ def _collector(**overrides: object) -> CollectorConfig:
         "secret_env": "FEED",
     }
     values.update(overrides)
-    return CollectorConfig.model_validate(values)
+    config = _ADAPTER.validate_python(values)
+    assert isinstance(config, TaxiiCollectorConfig)
+    return config
 
 
 _BUCKETS = [BucketConfig(name="intel", mode=BucketMode.append)]
@@ -85,7 +96,7 @@ def test_settings_reads_collector_credentials_from_env(
 
 def test_secret_env_is_required() -> None:
     with pytest.raises(ValueError, match="secret_env"):
-        CollectorConfig.model_validate(
+        _ADAPTER.validate_python(
             {
                 "name": "feed",
                 "remote_url": "https://taxii.example.com/api/",
@@ -132,3 +143,88 @@ def test_settings_reads_collector_secrets_from_env(
     secrets = Settings().COLLECTOR_SECRETS
 
     assert load_secret(_collector(secret_env="MITRE_ATTACK"), secrets) == "s3cret"
+
+
+_MISP: dict[str, object] = {
+    "name": "circl",
+    "type": "misp",
+    "misp_url": "https://misp.example.org",
+    "api_key_env": "CIRCL",
+    "secret_env": "CIRCL",
+    "target_bucket": "intel",
+}
+
+
+def test_missing_type_defaults_to_taxii() -> None:
+    assert _collector().type == "taxii"
+
+
+def test_misp_config_defaults() -> None:
+    config = _ADAPTER.validate_python(_MISP)
+    assert isinstance(config, MispCollectorConfig)
+    assert config.verify_tls is True
+    assert config.ca_bundle is None
+    assert config.timeout == 120
+    assert config.initial_lookback_days is None
+    assert config.overlap_seconds == 3600
+    assert config.tags == []
+    assert config.org is None
+    assert config.page_size == 100
+    assert config.submit_batch_size == 500
+    assert config.poll_interval == 300
+
+
+def test_misp_rejects_ca_bundle_with_verify_tls_false() -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        _ADAPTER.validate_python({**_MISP, "ca_bundle": "/ca.pem", "verify_tls": False})
+
+
+def test_misp_accepts_ca_bundle_with_verify_tls() -> None:
+    config = _ADAPTER.validate_python({**_MISP, "ca_bundle": "/ca.pem"})
+    assert isinstance(config, MispCollectorConfig)
+    assert config.ca_bundle == "/ca.pem"
+
+
+def test_unknown_key_rejected_for_taxii() -> None:
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        _collector(bogus=1)
+
+
+def test_unknown_key_rejected_for_misp() -> None:
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        _ADAPTER.validate_python({**_MISP, "bogus": 1})
+
+
+def test_taxii_field_rejected_on_misp() -> None:
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        _ADAPTER.validate_python({**_MISP, "remote_url": "https://x"})
+
+
+def test_unknown_type_rejected() -> None:
+    with pytest.raises(ValueError, match="union_tag_invalid"):
+        _ADAPTER.validate_python({**_MISP, "type": "other"})
+
+
+def test_platform_config_parses_mixed_collectors() -> None:
+    config = PlatformConfig.model_validate(
+        {
+            "buckets": [],
+            "collections": [],
+            "roles": [],
+            "pipelines": [],
+            "collectors": [
+                {
+                    "name": "feed",
+                    "remote_url": "https://t/",
+                    "remote_collection_id": "a",
+                    "target_bucket": "intel",
+                    "secret_env": "FEED",
+                },
+                _MISP,
+            ],
+        }
+    )
+    assert [type(c) for c in config.collectors] == [
+        TaxiiCollectorConfig,
+        MispCollectorConfig,
+    ]

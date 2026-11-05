@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
-
 from pydantic import SecretStr
 
+from database.repositories.bucket import InMemoryBucketRepository
+from database.repositories.collector import InMemoryCollectorRepository
 from dependencies import (
     _bearer,
     get_bucket_repo,
@@ -11,9 +12,7 @@ from dependencies import (
     get_collector_secrets,
     get_platform_config,
 )
-from models.domain import Bucket, CollectorConfig, PlatformConfig
-from database.repositories.bucket import InMemoryBucketRepository
-from database.repositories.collector import InMemoryCollectorRepository
+from models.domain import Bucket, PlatformConfig, TaxiiCollectorConfig
 from routes.collectors import collectors_router
 
 BUCKET = "intel"
@@ -31,8 +30,8 @@ INDICATOR = {
 }
 
 
-def _collector_config(name: str) -> CollectorConfig:
-    return CollectorConfig(
+def _collector_config(name: str) -> TaxiiCollectorConfig:
+    return TaxiiCollectorConfig(
         name=name,
         remote_url="https://taxii.example.com/api/",
         remote_collection_id="coll",

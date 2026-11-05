@@ -12,7 +12,7 @@ from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
 from collectors.validation import load_credentials, load_secret
 from config import CollectorCredentials
-from models.domain import CollectorConfig
+from models.domain import CollectorConfig, TaxiiCollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,10 @@ def create_runner(
     collectors: list[TaxiiCollector] = []
     clients: dict[str, list[httpx.Client]] = {}
     for config in configs:
+        if not isinstance(config, TaxiiCollectorConfig):
+            raise TypeError(
+                f"Collector '{config.name}' has unsupported type '{config.type}'"
+            )
         auth = load_credentials(config, credentials)
         secret = load_secret(config, secrets)
         taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)

@@ -17,22 +17,21 @@ import pytest
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector, taxii_timestamp
-from pydantic import SecretStr
-
+from database.repositories.bucket import InMemoryBucketRepository
+from database.repositories.collector import InMemoryCollectorRepository
 from dependencies import (
     get_bucket_repo,
     get_collector_repo,
     get_collector_secrets,
     get_platform_config,
 )
-from models.domain import Bucket, CollectorConfig, PlatformConfig
-from database.repositories.bucket import InMemoryBucketRepository
-from database.repositories.collector import InMemoryCollectorRepository
+from models.domain import Bucket, PlatformConfig, TaxiiCollectorConfig
 from routes.collectors import collectors_router
 
 API_ROOT = "http://taxii.test/api/"
@@ -161,8 +160,8 @@ async def platform() -> Platform:
     return Platform(TestClient(app, base_url="http://platform"), buckets)
 
 
-def _config() -> CollectorConfig:
-    return CollectorConfig(
+def _config() -> TaxiiCollectorConfig:
+    return TaxiiCollectorConfig(
         name=COLLECTOR_NAME,
         remote_url=API_ROOT,
         remote_collection_id=COLLECTION_ID,
