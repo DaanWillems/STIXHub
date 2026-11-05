@@ -11,7 +11,7 @@ from collectors.misp_client import MispClient, MispEventSummary
 from collectors.misp_collector import MispCollector
 from collectors.misp_cursor import MispCursor
 from collectors.platform_client import PlatformClient
-from collectors.retry import RetriesExhausted
+from collectors.retry import CollectorStopped, RetriesExhausted
 from models.domain import CollectorResponse, MispCollectorConfig, TaxiiWriteStatusModel
 
 NOW = 1_800_000_000
@@ -128,6 +128,10 @@ def _list(misp: FakeMisp, *entries: tuple[str, int]) -> None:
         misp.events.setdefault(u, _event(u))
 
 
+def _submitted_ids(platform: FakePlatform) -> set[str]:
+    return {o["id"] for batch in platform.submitted for o in batch}
+
+
 def _cursor(platform: FakePlatform) -> MispCursor:
     return MispCursor.parse(platform.cursors[-1])
 
@@ -174,6 +178,7 @@ def test_changed_event_is_skipped_but_cursor_advances(event: Any) -> None:
     _list(misp, ("a", 10), ("b", 20))
     misp.events["a"] = event
     assert collector.poll_once() == 3
+    assert _submitted_ids(platform) == {f"indicator--b-{i}" for i in range(3)}
     assert _cursor(platform).publish_timestamp == 20
 
 
@@ -183,6 +188,7 @@ def test_event_http_error_skips_only_that_event(code: int) -> None:
     _list(misp, ("a", 10), ("b", 20))
     misp.events["a"] = _status(code)
     assert collector.poll_once() == 3
+    assert _submitted_ids(platform) == {f"indicator--b-{i}" for i in range(3)}
     assert _cursor(platform).publish_timestamp == 20
 
 
@@ -240,3 +246,47 @@ def test_conversion_failure_and_empty_result_are_skipped(
     assert collector.poll_once() == 0
     assert platform.submitted == []
     assert json.loads(platform.cursors[-1])["publish_timestamp"] == 20
+
+
+def test_event_fetch_5xx_does_not_advance_past_it() -> None:
+    collector, misp, platform = _make(cursor=MispCursor(0).serialize())
+    _list(misp, ("a", 10), ("b", 20))
+    misp.events["b"] = _status(503)
+    with pytest.raises(RetriesExhausted):
+        collector.poll_once()
+    assert _cursor(platform).publish_timestamp == 10
+
+
+@pytest.mark.parametrize("published", ["1", 1, True])
+def test_published_flag_variants_are_accepted(published: Any) -> None:
+    collector, misp, _ = _make(cursor=MispCursor(0).serialize())
+    _list(misp, ("a", 10))
+    misp.events["a"] = _event("a", published=published)
+    assert collector.poll_once() == 3
+
+
+@pytest.mark.parametrize("published", ["0", 0, None])
+def test_unpublished_flag_variants_are_skipped(published: Any) -> None:
+    collector, misp, platform = _make(cursor=MispCursor(0).serialize())
+    _list(misp, ("a", 10))
+    misp.events["a"] = _event("a", published=published)
+    assert collector.poll_once() == 0
+    assert platform.submitted == []
+
+
+def test_first_run_cursor_is_persisted_before_events_and_advances() -> None:
+    collector, misp, platform = _make(initial_lookback_days=1, overlap_seconds=0)
+    _list(misp, ("a", NOW - 100))
+    assert collector.poll_once() == 3
+    assert len(platform.cursors) == 2
+    assert MispCursor.parse(platform.cursors[0]).publish_timestamp == NOW - 86400
+    assert _cursor(platform).publish_timestamp == NOW - 100
+
+
+def test_stop_requested_aborts_before_next_event() -> None:
+    collector, misp, platform = _make(cursor=MispCursor(0).serialize())
+    _list(misp, ("a", 10))
+    collector._stop.set()
+    with pytest.raises(CollectorStopped):
+        collector.poll_once()
+    assert platform.submitted == [] and platform.cursors == []
