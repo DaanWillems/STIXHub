@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from misp_stix_converter import MISPtoSTIX21Parser
 
 from collectors import misp_convert
 from collectors.misp_convert import chunk, convert_event
@@ -54,10 +55,29 @@ def test_parser_exception_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
         convert_event(_event())
 
 
-def test_fresh_parser_per_event() -> None:
+def test_fresh_parser_per_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[Any] = []
+    real_parser = MISPtoSTIX21Parser
+
+    def factory() -> Any:
+        parser = real_parser()
+        created.append(parser)
+        return parser
+
+    monkeypatch.setattr(misp_convert, "MISPtoSTIX21Parser", factory)
     first = convert_event(_event())
     second = convert_event(_event())
+    assert len(created) == 2
+    assert created[0] is not created[1]
     assert [o["id"] for o in first] == [o["id"] for o in second]
+
+
+def test_event_without_attributes_converts() -> None:
+    event = _event()
+    event["Attribute"] = []
+    types = [o["type"] for o in convert_event(event)]
+    assert "report" in types
+    assert "indicator" not in types
 
 
 def test_chunk() -> None:
