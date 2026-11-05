@@ -22,8 +22,15 @@ from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector, taxii_timestamp
-from dependencies import get_bucket_repo, get_collector_repo
-from models.domain import Bucket, CollectorConfig
+from pydantic import SecretStr
+
+from dependencies import (
+    get_bucket_repo,
+    get_collector_repo,
+    get_collector_secrets,
+    get_platform_config,
+)
+from models.domain import Bucket, CollectorConfig, PlatformConfig
 from database.repositories.bucket import InMemoryBucketRepository
 from database.repositories.collector import InMemoryCollectorRepository
 from routes.collectors import collectors_router
@@ -33,6 +40,8 @@ COLLECTION_ID = "91a7b528-80eb-42ed-a74d-c6fbd5a26116"
 BUCKET = "external-intel"
 CREDENTIALS = ("feed-user", "feed-pass")
 PAGE_SIZE = 2
+COLLECTOR_NAME = "external-feed"
+PLATFORM_SECRET = "platform-secret"
 
 
 # --- in-process mock TAXII 2.1 server ---------------------------------------
@@ -139,7 +148,29 @@ async def platform() -> Platform:
     app.include_router(collectors_router)
     app.dependency_overrides[get_bucket_repo] = lambda: buckets
     app.dependency_overrides[get_collector_repo] = lambda: collectors
+    app.dependency_overrides[get_platform_config] = lambda: PlatformConfig(
+        buckets=[],
+        collections=[],
+        roles=[],
+        pipelines=[],
+        collectors=[_config()],
+    )
+    app.dependency_overrides[get_collector_secrets] = lambda: {
+        "external_feed": SecretStr(PLATFORM_SECRET)
+    }
     return Platform(TestClient(app, base_url="http://platform"), buckets)
+
+
+def _config() -> CollectorConfig:
+    return CollectorConfig(
+        name=COLLECTOR_NAME,
+        remote_url=API_ROOT,
+        remote_collection_id=COLLECTION_ID,
+        target_bucket=BUCKET,
+        secret_env="EXTERNAL_FEED",
+        poll_interval=3600,
+        shutdown_timeout=5,
+    )
 
 
 def _make_collector(
@@ -147,19 +178,12 @@ def _make_collector(
     platform: Platform,
     stop_event: threading.Event | None = None,
     auth: tuple[str, str] = CREDENTIALS,
+    platform_secret: str = PLATFORM_SECRET,
 ) -> TaxiiCollector:
-    config = CollectorConfig(
-        name="external-feed",
-        remote_url=API_ROOT,
-        remote_collection_id=COLLECTION_ID,
-        target_bucket=BUCKET,
-        poll_interval=3600,
-        shutdown_timeout=5,
-    )
     return TaxiiCollector(
-        config,
+        _config(),
         TaxiiClient(taxii_client, API_ROOT, COLLECTION_ID, auth=auth),
-        PlatformClient(platform.client, "http://platform"),
+        PlatformClient(platform.client, "http://platform", platform_secret),
         stop_event=stop_event,
         backoff_base=0,
     )
@@ -227,6 +251,16 @@ async def test_bad_credentials_ingest_nothing(
     assert len(server.requests) == 0  # rejected by auth before the handler
     assert await _bucket_ids(platform) == []
     assert collector.cursor is None
+
+
+def test_wrong_platform_secret_is_rejected(
+    taxii_server: tuple[MockTaxiiServer, TestClient], platform: Platform
+) -> None:
+    _, taxii_client = taxii_server
+    collector = _make_collector(taxii_client, platform, platform_secret="wrong")
+    # TestClient raises its own HTTP error type, so match on the status only.
+    with pytest.raises(Exception, match="401 Unauthorized"):
+        collector.register()
 
 
 async def test_threaded_runner_ingests_and_shuts_down(

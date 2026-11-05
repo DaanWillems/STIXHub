@@ -1,7 +1,9 @@
 """Internal REST API used by collectors to register and push STIX objects.
 
-These endpoints are unauthenticated by design: they are meant to be reachable
-only from localhost / the internal network (see specs/taxii-collector.md).
+Every request must carry ``Authorization: Bearer <secret>``, where the secret
+is the shared secret of a collector declared in the platform config (env var
+``STIX_HUB_COLLECTOR_SECRETS__<secret_env>``). A collector may only register
+under, and act on, its own name.
 """
 
 import logging
@@ -11,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound
 
-from dependencies import get_bucket_repo, get_collector_repo
+from dependencies import get_bucket_repo, get_collector_repo, require_collector
 from models.domain import (
     Bucket,
     Collector,
@@ -31,6 +33,9 @@ collectors_router = APIRouter(prefix="/collectors", tags=["Collectors"])
 
 BucketRepoDep = Annotated[BucketRepository, Depends(get_bucket_repo)]
 CollectorRepoDep = Annotated[CollectorRepository, Depends(get_collector_repo)]
+CollectorNameDep = Annotated[str, Depends(require_collector)]
+
+_FORBIDDEN = "Not authorized for this collector"
 
 
 def _to_response(collector: Collector) -> CollectorResponse:
@@ -50,12 +55,16 @@ async def _find_bucket(repo: BucketRepository, bucket_name: str) -> Bucket | Non
     return bucket
 
 
-async def _get_collector(repo: CollectorRepository, collector_id: int) -> Collector:
+async def _get_own_collector(
+    repo: CollectorRepository, collector_id: int, authenticated: str
+) -> Collector:
     collector = await repo.get(collector_id)
     if collector is None:
         raise HTTPException(
             status_code=404, detail=f"Collector {collector_id} not found"
         )
+    if collector.name != authenticated:
+        raise HTTPException(status_code=403, detail=_FORBIDDEN)
     return collector
 
 
@@ -64,7 +73,10 @@ async def register_collector(
     body: CollectorRegisterRequest,
     collector_repo: CollectorRepoDep,
     bucket_repo: BucketRepoDep,
+    authenticated: CollectorNameDep,
 ) -> CollectorResponse:
+    if body.name != authenticated:
+        raise HTTPException(status_code=403, detail=_FORBIDDEN)
     bucket = await _find_bucket(bucket_repo, body.bucket_name)
     if bucket is None or bucket.id is None:
         raise HTTPException(
@@ -91,8 +103,9 @@ async def submit_objects(
     bundle: TaxiiEnvelopeModel,
     collector_repo: CollectorRepoDep,
     bucket_repo: BucketRepoDep,
+    authenticated: CollectorNameDep,
 ) -> JSONResponse:
-    collector = await _get_collector(collector_repo, collector_id)
+    collector = await _get_own_collector(collector_repo, collector_id, authenticated)
     bucket = await bucket_repo.get(bucket_id=collector.bucket_id)
     status = await ingest_objects(
         bucket_repo, bucket, bundle.objects, creator=f"collector:{collector.name}"
@@ -105,7 +118,9 @@ async def update_cursor(
     collector_id: int,
     body: CollectorCursorUpdate,
     collector_repo: CollectorRepoDep,
+    authenticated: CollectorNameDep,
 ) -> CollectorResponse:
+    await _get_own_collector(collector_repo, collector_id, authenticated)
     collector = await collector_repo.update_cursor(collector_id, body.cursor)
     if collector is None:
         raise HTTPException(

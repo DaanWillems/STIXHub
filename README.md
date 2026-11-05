@@ -142,6 +142,7 @@ collectors:
     remote_collection_id: x-mitre-collection--1f5f1533-f617-4ca8-9ab4-6a02367fa019
     target_bucket: raw-intel           # must exist in `buckets`
     credentials_env: MITRE_TAXII       # optional, see below
+    secret_env: MITRE_ATTACK           # required, see below
     poll_interval: 300                 # seconds (default 300)
     max_retries: 3                     # default 3
     shutdown_timeout: 30               # seconds (default 30)
@@ -150,6 +151,8 @@ collectors:
 Remote credentials never go in the YAML. They are read through the platform settings (environment or `.env`): for `credentials_env: MITRE_TAXII` set `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER` and `STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__PASS`.
 
 Collectors reach the platform's internal API at `STIX_HUB_PLATFORM_INTERNAL_URL` (default `http://127.0.0.1:8000`).
+
+Each collector authenticates to that API with its own shared secret, sent as `Authorization: Bearer <secret>`. For `secret_env: MITRE_ATTACK` set `STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK`. The platform refuses to start if a configured collector has no secret or two collectors share one. The secret identifies the collector: a collector can only register under its own name and only submit objects or move the cursor for its own registration (`401` for a missing/unknown secret, `403` for another collector's resources).
 
 ```mermaid
 sequenceDiagram

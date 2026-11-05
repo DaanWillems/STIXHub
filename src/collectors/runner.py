@@ -5,11 +5,12 @@ import threading
 from collections.abc import Callable, Mapping
 
 import httpx
+from pydantic import SecretStr
 
 from collectors.platform_client import PlatformClient
 from collectors.taxii_client import TaxiiClient
 from collectors.taxii_collector import TaxiiCollector
-from collectors.validation import load_credentials
+from collectors.validation import load_credentials, load_secret
 from config import CollectorCredentials
 from models.domain import CollectorConfig
 
@@ -84,16 +85,19 @@ def create_runner(
     platform_url: str,
     on_fatal: FatalHandler | None = terminate_process,
     credentials: Mapping[str, CollectorCredentials] | None = None,
+    secrets: Mapping[str, SecretStr] | None = None,
 ) -> CollectorRunner:
-    """Build collectors from config. Raises if credentials are misconfigured.
+    """Build collectors from config. Raises if credentials or secrets are missing.
 
-    ``credentials`` defaults to ``settings.COLLECTOR_CREDENTIALS``.
+    ``credentials`` defaults to ``settings.COLLECTOR_CREDENTIALS`` and
+    ``secrets`` to ``settings.COLLECTOR_SECRETS``.
     """
     stop_event = threading.Event()
     collectors: list[TaxiiCollector] = []
     clients: dict[str, list[httpx.Client]] = {}
     for config in configs:
         auth = load_credentials(config, credentials)
+        secret = load_secret(config, secrets)
         taxii_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
         platform_http = httpx.Client(timeout=HTTP_TIMEOUT_SECONDS)
         clients[config.name] = [taxii_http, platform_http]
@@ -103,7 +107,7 @@ def create_runner(
                 TaxiiClient(
                     taxii_http, config.remote_url, config.remote_collection_id, auth
                 ),
-                PlatformClient(platform_http, platform_url),
+                PlatformClient(platform_http, platform_url, secret),
                 stop_event=stop_event,
             )
         )

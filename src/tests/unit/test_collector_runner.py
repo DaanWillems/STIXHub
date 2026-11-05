@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from collectors.platform_client import PlatformClient
 from collectors.runner import CollectorRunner, create_runner
@@ -19,6 +20,7 @@ def _config(name: str = "feed", shutdown_timeout: float = 5) -> CollectorConfig:
         remote_url="https://taxii.example.com/api/",
         remote_collection_id="coll-1",
         target_bucket="intel",
+        secret_env="FEED",
         poll_interval=3600,
         shutdown_timeout=shutdown_timeout,
     )
@@ -39,7 +41,9 @@ def _collector(
         config,
         TaxiiClient(httpx.Client(transport=taxii_handler), config.remote_url, "c"),
         PlatformClient(
-            httpx.Client(transport=httpx.MockTransport(_platform_handler)), "http://p"
+            httpx.Client(transport=httpx.MockTransport(_platform_handler)),
+            "http://p",
+            "secret",
         ),
         stop_event=stop,
         backoff_base=0,
@@ -110,4 +114,11 @@ def test_runner_abandons_thread_after_shutdown_timeout(
 def test_create_runner_fails_fast_on_missing_credentials() -> None:
     config = _config().model_copy(update={"credentials_env": "FEED"})
     with pytest.raises(RuntimeError, match="COLLECTOR_CREDENTIALS__FEED__USER"):
-        create_runner([config], "http://p", credentials={})
+        create_runner(
+            [config], "http://p", credentials={}, secrets={"feed": SecretStr("s")}
+        )
+
+
+def test_create_runner_fails_fast_on_missing_secret() -> None:
+    with pytest.raises(RuntimeError, match="COLLECTOR_SECRETS__FEED"):
+        create_runner([_config()], "http://p", secrets={})

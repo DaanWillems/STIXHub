@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # STIX_HUB_COLLECTOR_CREDENTIALS__MITRE_TAXII__USER / ...__PASS.
     # Keys are lower-cased by pydantic-settings.
     COLLECTOR_CREDENTIALS: dict[str, CollectorCredentials] = Field(default_factory=dict)
+    # Shared secrets collectors use to authenticate to the /collectors API,
+    # keyed by a collector's `secret_env`, e.g.
+    # STIX_HUB_COLLECTOR_SECRETS__MITRE_ATTACK. Keys are lower-cased.
+    COLLECTOR_SECRETS: dict[str, SecretStr] = Field(default_factory=dict)
 
 
 settings = Settings()

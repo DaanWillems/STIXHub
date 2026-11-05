@@ -1,12 +1,15 @@
 import hashlib
-from collections.abc import AsyncGenerator
+import hmac
+from collections.abc import AsyncGenerator, Mapping
 from typing import Annotated
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from fastapi import Request
+from pydantic import SecretStr
 
+from collectors.validation import find_secret
 from config import settings
 from models.domain import User
 from models.domain import PlatformConfig
@@ -72,3 +75,31 @@ async def get_current_user(
 def get_platform_config(request: Request) -> PlatformConfig:
     result: PlatformConfig = request.app.state.platform_config
     return result
+
+
+def get_collector_secrets() -> Mapping[str, SecretStr]:
+    return settings.COLLECTOR_SECRETS
+
+
+async def require_collector(
+    credentials: _CredentialsDep,
+    platform_config: Annotated[PlatformConfig, Depends(get_platform_config)],
+    secrets: Annotated[Mapping[str, SecretStr], Depends(get_collector_secrets)],
+) -> str:
+    """Authenticate a collector by its shared secret; returns the collector name.
+
+    The bearer token must equal the secret of a collector declared in the
+    platform config (``STIX_HUB_COLLECTOR_SECRETS__<secret_env>``).
+    """
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    presented = credentials.credentials.encode()
+    authenticated: str | None = None
+    # Compare against every secret so timing does not reveal which matched.
+    for config in platform_config.collectors:
+        secret = find_secret(config, secrets)
+        if secret is not None and hmac.compare_digest(presented, secret.encode()):
+            authenticated = config.name
+    if authenticated is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return authenticated
